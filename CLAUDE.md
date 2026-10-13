@@ -160,6 +160,10 @@ Full guide: https://gjs.guide/extensions/review-guidelines/review-guidelines.htm
 GNOME also publishes a second, LLM-targeted checklist aimed specifically at
 AI coding assistants working on GNOME Shell extensions:
 https://gjs.guide/extensions/review-guidelines/best-practices.html
+(originally the EGO reviewer's open letter "EGO AI reference",
+https://blogs.gnome.org/jrahmatzadeh/2026/07/27/ego-ai-reference/ - the
+post asks AI tools to re-check it for updates; raw Markdown at
+https://gitlab.gnome.org/World/javascript/gjs-guide/-/raw/main/docs/extensions/review-guidelines/best-practices.md).
 This project is being prepared for submission to the official EGO review, so
 new code should keep meeting these — checked clean as of 2026-09-07:
 
@@ -272,7 +276,8 @@ new code should keep meeting these — checked clean as of 2026-09-07:
   typography (`…`, `—`) — this is only about comments.
 - **Settings pairing**: `settings-schema` in metadata.json is paired with a
   parameterless `this.getSettings()` call — already true in extension.js and
-  prefs.js; don't reintroduce the old schema-path-argument form.
+  prefs.js; don't reintroduce the old schema-path-argument form, and don't
+  hard-code the schema id as a global constant (no JS file mentions it).
 - **Structural**: keep `enable()`/`disable()` adjacent in extension.js for
   easy diffing, keep the entry-point file small with logic split into
   single-responsibility modules (already the shape of this repo), avoid
@@ -297,6 +302,27 @@ new code should keep meeting these — checked clean as of 2026-09-07:
     as "defined but never called, so not cleaning up on disable". Override
     the real method and call `super` instead (`SearchPanel._finish()`), so
     the call path is visible in the subclass's own file.
+  - **Each class owns its resources end to end**: signals, timeouts, Soup
+    sessions, `Gio.Cancellable`s are created and cleaned up by the same
+    class - never created in one class and torn down by another.
+  - **No placeholder `enable()`/`disable()` stubs**, and extract repeated
+    code into helpers rather than copy-pasting it.
+  - **Lines <= 200 characters** (no JS line exceeds it, checked 2026-10-13).
+  - **Organize by process**: prefs-only modules belong under a `prefs/`
+    directory, and any module shared by extension.js and prefs.js must not
+    import `St`/`Clutter`/`Gtk`/`Gdk`/`Adw`. The repo is currently flat
+    (prefs logic all inside prefs.js), so this only bites if prefs.js ever
+    gets split into modules.
+  - **Avoid spawning external commands**; prefer D-Bus for system services,
+    and move heavy work into a separate app talking over D-Bus. The two
+    existing `Gio.Subprocess.new` calls (`gnome-calendar --date` in
+    calendarWidget.js, `gnome-control-center online-accounts` in prefs.js)
+    are fire-and-forget app launches on user click, not background work -
+    acceptable, but don't add more without a reason.
+  - **Single Shell version** is the guide's default; multi-version support
+    should follow the EGO Port Guide. metadata.json lists 48/49/50 and EGO
+    approved `2693fdd` with that, so it isn't a blocker - but re-verify
+    each listed version actually works when pruning before an upload.
 - **AI-generated code notices**: this checklist asks AI assistants to flag
   AI-authored code with a comment unless the human author understands the
   JavaScript, and for an author who does understand it to strip such
