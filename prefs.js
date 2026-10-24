@@ -4,7 +4,6 @@ import Gtk from 'gi://Gtk';
 import Gdk from 'gi://Gdk';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
-import EDataServer from 'gi://EDataServer';
 
 // Every IANA time zone id available on this system, read from the same
 // tzdata tables GLib.TimeZone itself needs to resolve a zone id - so this
@@ -43,6 +42,11 @@ export default class LitsycalPrefs extends ExtensionPreferences {
         window.set_default_size(600, 660);
         const settings = this.getSettings();
         const settingsHandlerIds = [];
+        this._previewMedia = null;
+        this._detectCancellable = null;
+        this._prefsClosed = false;
+        this._iface = null;
+        this._ifaceHandlerId = null;
 
         // GENERAL PAGE
         const general = new Adw.PreferencesPage({
@@ -51,6 +55,28 @@ export default class LitsycalPrefs extends ExtensionPreferences {
         });
         window.add(general);
 
+        this._buildCalendarPrefs(general, settings);
+        this._buildShortcutGroup(window, general, settings);
+        this._buildSoundRows(window, general, settings, settingsHandlerIds);
+        this._buildTimeZoneGroups(general, settings, settingsHandlerIds);
+
+        // APPEARANCE PAGE  (options that were previously in "General")
+        const appearance = new Adw.PreferencesPage({
+            title:     _('Appearance'),
+            icon_name: 'applications-graphics-symbolic',
+        });
+        window.add(appearance);
+
+        this._buildPanelIconGroup(appearance, window, settings, settingsHandlerIds);
+        this._buildSizeGroup(appearance, settings);
+        this._buildDotsAndAgendaGroups(appearance, settings, settingsHandlerIds);
+        this._buildThemeGroup(appearance, settings);
+
+        const about = this._buildAboutPage(window);
+        this._wireCloseAndInitialPage(window, settings, settingsHandlerIds, {general, appearance, about});
+    }
+
+    _buildCalendarPrefs(general, settings) {
         // Calendar group
         const calGroup = new Adw.PreferencesGroup({title: _('Calendar')});
         general.add(calGroup);
@@ -120,7 +146,9 @@ export default class LitsycalPrefs extends ExtensionPreferences {
                 settings.set_int('agenda-days', AGENDA_DAYS_IDS[i]);
         });
         agendaGroup.add(agendaDaysRow);
+    }
 
+    _buildShortcutGroup(window, general, settings) {
         // Keyboard shortcut group
         const kbGroup = new Adw.PreferencesGroup({title: _('Keyboard Shortcut')});
         general.add(kbGroup);
@@ -213,7 +241,9 @@ export default class LitsycalPrefs extends ExtensionPreferences {
 
         kbRow.add_suffix(recordBtn);
         kbGroup.add(kbRow);
+    }
 
+    _buildSoundRows(window, general, settings, settingsHandlerIds) {
         // Other group
         const otherGroup = new Adw.PreferencesGroup({title: _('Other')});
         general.add(otherGroup);
@@ -235,12 +265,11 @@ export default class LitsycalPrefs extends ExtensionPreferences {
         });
         // Held outside the handler so playback isn't garbage-collected
         // partway through; a new click restarts it.
-        let previewMedia = null;
         speakerBtn.connect('clicked', () => {
-            previewMedia?.pause();
-            previewMedia = Gtk.MediaFile.new_for_filename(
+            this._previewMedia?.pause();
+            this._previewMedia = Gtk.MediaFile.new_for_filename(
                 settings.get_string('hour-sound-file') || '/usr/share/sounds/freedesktop/stereo/bell.oga');
-            previewMedia.play();
+            this._previewMedia.play();
         });
 
         beepRow.add_suffix(beepSwitch);
@@ -303,7 +332,9 @@ export default class LitsycalPrefs extends ExtensionPreferences {
         soundRow.add_suffix(resetBtn);
         soundRow.add_suffix(chooseBtn);
         otherGroup.add(soundRow);
+    }
 
+    _buildTimeZoneGroups(general, settings, settingsHandlerIds) {
         // Time zones
         // A searchable "add" dropdown (system IANA zone database, see
         // listTimeZoneIds) plus one removable row per zone already added -
@@ -462,11 +493,12 @@ export default class LitsycalPrefs extends ExtensionPreferences {
         // window, not just this one feature, so both are loaded lazily and
         // the button stays hidden if either is missing.
         let Geoclue, GWeather;
-        let detectCancellable = null;
         (async () => {
             try {
                 ({default: Geoclue} = await import('gi://Geoclue'));
                 ({default: GWeather} = await import('gi://GWeather'));
+                if (this._prefsClosed)
+                    return;
                 detectBtn.visible = true;
             } catch {
                 // Feature unavailable - button stays hidden.
@@ -479,11 +511,11 @@ export default class LitsycalPrefs extends ExtensionPreferences {
         detectBtn.connect('clicked', () => {
             detectBtn.set_sensitive(false);
             homeRow.set_subtitle(_('Detecting…'));
-            detectCancellable = new Gio.Cancellable();
+            this._detectCancellable = new Gio.Cancellable();
 
-            Geoclue.Simple.new('org.gnome.Shell', Geoclue.AccuracyLevel.CITY, detectCancellable, (_obj, res) => {
-                const cancelled = detectCancellable.is_cancelled();
-                detectCancellable = null;
+            Geoclue.Simple.new('org.gnome.Shell', Geoclue.AccuracyLevel.CITY, this._detectCancellable, (_obj, res) => {
+                const cancelled = this._detectCancellable.is_cancelled();
+                this._detectCancellable = null;
                 // The window (and these widgets) may already be gone if
                 // detection was still in flight when Preferences closed
                 // - close-request cancels it, so bail out here without
@@ -510,14 +542,9 @@ export default class LitsycalPrefs extends ExtensionPreferences {
         });
         homeRow.add_suffix(detectBtn);
         homeGroup.add(homeRow);
+    }
 
-        // APPEARANCE PAGE  (options that were previously in "General")
-        const appearance = new Adw.PreferencesPage({
-            title:     _('Appearance'),
-            icon_name: 'applications-graphics-symbolic',
-        });
-        window.add(appearance);
-
+    _buildPanelIconGroup(appearance, window, settings, settingsHandlerIds) {
         // Panel icon group
         const iconGroup = new Adw.PreferencesGroup({title: _('Panel Icon')});
         appearance.add(iconGroup);
@@ -647,7 +674,9 @@ export default class LitsycalPrefs extends ExtensionPreferences {
         const hideRow = new Adw.SwitchRow({title: _('Hide icon')});
         settings.bind('hide-icon', hideRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         iconGroup.add(hideRow);
+    }
 
+    _buildSizeGroup(appearance, settings) {
         // Calendar size group
         const sizeGroup = new Adw.PreferencesGroup({title: _('Calendar')});
         appearance.add(sizeGroup);
@@ -711,7 +740,9 @@ export default class LitsycalPrefs extends ExtensionPreferences {
         });
         settings.bind('short-day-names', shortDayNamesRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         sizeGroup.add(shortDayNamesRow);
+    }
 
+    _buildDotsAndAgendaGroups(appearance, settings, settingsHandlerIds) {
         // Event dots
         const dotsGroup = new Adw.PreferencesGroup({title: _('Event Dots')});
         appearance.add(dotsGroup);
@@ -792,7 +823,9 @@ export default class LitsycalPrefs extends ExtensionPreferences {
         }
         hlRow.add_suffix(hlBox);
         hlGroup.add(hlRow);
+    }
 
+    _buildThemeGroup(appearance, settings) {
         // Theme
         const themeGroup = new Adw.PreferencesGroup({title: _('Theme')});
         appearance.add(themeGroup);
@@ -810,17 +843,17 @@ export default class LitsycalPrefs extends ExtensionPreferences {
 
         // Live "currently: Light/Dark" hint while "System" is selected, so the
         // option visibly does something instead of looking like a no-op.
-        const iface = new Gio.Settings({schema: 'org.gnome.desktop.interface'});
+        this._iface = new Gio.Settings({schema: 'org.gnome.desktop.interface'});
         const updateThemeSubtitle = () => {
             if (THEME_IDS[themeRow.get_selected()] !== 'system') {
                 themeRow.subtitle = _('System follows your GNOME appearance setting');
                 return;
             }
-            const state = iface.get_string('color-scheme') === 'prefer-dark' ? _('Dark') : _('Light');
+            const state = this._iface.get_string('color-scheme') === 'prefer-dark' ? _('Dark') : _('Light');
             themeRow.subtitle = `${_('System follows your GNOME appearance setting')} (${_('currently')}: ${state})`;
         };
         updateThemeSubtitle();
-        const ifaceHandlerId = iface.connect('changed::color-scheme', updateThemeSubtitle);
+        this._ifaceHandlerId = this._iface.connect('changed::color-scheme', updateThemeSubtitle);
 
         themeRow.connect('notify::selected', () => {
             const i = themeRow.get_selected();
@@ -869,7 +902,9 @@ export default class LitsycalPrefs extends ExtensionPreferences {
 
         wkGroup.add(wkModeRow);
         wkGroup.add(wkColorRow);
+    }
 
+    _buildAboutPage(window) {
         // ABOUT PAGE
         const about = new Adw.PreferencesPage({
             title:     _('About'),
@@ -910,17 +945,22 @@ export default class LitsycalPrefs extends ExtensionPreferences {
         makeLinkRow('Buy Me a Coffee', _('Support Litsycal’s development'),
             'https://buymeacoffee.com/mlkonrad');
 
+        return about;
+    }
+
+    _wireCloseAndInitialPage(window, settings, settingsHandlerIds, pagesByName) {
         let initialPageIdleId = null;
         window.connect('close-request', () => {
+            this._prefsClosed = true;
             if (initialPageIdleId) {
                 GLib.source_remove(initialPageIdleId);
                 initialPageIdleId = null;
             }
-            detectCancellable?.cancel();
-            previewMedia?.pause();
+            this._detectCancellable?.cancel();
+            this._previewMedia?.pause();
             for (const id of settingsHandlerIds)
                 settings.disconnect(id);
-            iface.disconnect(ifaceHandlerId);
+            this._iface.disconnect(this._ifaceHandlerId);
             return false;
         });
 
@@ -932,7 +972,6 @@ export default class LitsycalPrefs extends ExtensionPreferences {
         if (requestedPage !== 'general')
             settings.set_string('prefs-initial-page', 'general');
 
-        const pagesByName = {general, appearance, about};
         if (pagesByName[requestedPage]) {
             // set_visible_page() here, mid-construction, doesn't stick - the
             // window's own navigation view isn't ready to switch pages until
@@ -958,63 +997,80 @@ export default class LitsycalPrefs extends ExtensionPreferences {
 
         const disabled = new Set(settings.get_strv('disabled-calendars'));
 
-        EDataServer.SourceRegistry.new(null, (_obj, res) => {
-            let registry;
+        // EDataServer isn't guaranteed to be installed (minimal setups
+        // can lack the typelib) - a static top-level import throws at
+        // module load and takes down the whole Preferences window, not
+        // just this group, so it's loaded lazily here (same pattern as
+        // Geoclue/GWeather above).
+        (async () => {
+            let EDataServer;
             try {
-                registry = EDataServer.SourceRegistry.new_finish(res);
+                ({default: EDataServer} = await import('gi://EDataServer'));
             } catch {
-                loadingRow.set_title(_('Could not load calendars'));
+                loadingRow.set_title(_('Calendars unavailable'));
+                loadingRow.set_subtitle(_('Install evolution-data-server to see and manage calendars here'));
+                loadingRow.set_subtitle_lines(2);
                 return;
             }
 
-            const sources = registry.list_sources(EDataServer.SOURCE_EXTENSION_CALENDAR)
-                .filter(src => src.get_enabled());
-
-            group.remove(loadingRow);
-
-            if (sources.length === 0) {
-                group.add(this._buildNoCalendarsRow());
-                return;
-            }
-
-            for (const src of sources) {
-                const uid    = src.get_uid();
-                const calExt = src.get_extension(EDataServer.SOURCE_EXTENSION_CALENDAR);
-                const color  = calExt.get_color();
-                const name   = src.get_display_name();
-
-                const row = new Adw.SwitchRow({
-                    title:  GLib.markup_escape_text(name, -1),
-                    active: !disabled.has(uid),
-                });
-
-                // Backends report colour in whatever format they like (hex,
-                // "rgb(...)", named, ...); Gdk.RGBA.parse() accepts all of them.
-                const rgba = new Gdk.RGBA();
-                if (color && rgba.parse(color)) {
-                    const dot = new Gtk.DrawingArea({
-                        content_width: 10, content_height: 10,
-                        valign: Gtk.Align.CENTER,
-                    });
-                    dot.set_draw_func((_area, cr, width, height) => {
-                        cr.setSourceRGBA(rgba.red, rgba.green, rgba.blue, rgba.alpha);
-                        cr.arc(width / 2, height / 2, Math.min(width, height) / 2, 0, 2 * Math.PI);
-                        cr.fill();
-                        cr.$dispose();
-                    });
-                    row.add_prefix(dot);
+            EDataServer.SourceRegistry.new(null, (_obj, res) => {
+                let registry;
+                try {
+                    registry = EDataServer.SourceRegistry.new_finish(res);
+                } catch {
+                    loadingRow.set_title(_('Could not load calendars'));
+                    return;
                 }
 
-                row.connect('notify::active', () => {
-                    if (row.get_active())
-                        disabled.delete(uid);
-                    else
-                        disabled.add(uid);
-                    settings.set_strv('disabled-calendars', [...disabled]);
-                });
-                group.add(row);
-            }
-        });
+                const sources = registry.list_sources(EDataServer.SOURCE_EXTENSION_CALENDAR)
+                    .filter(src => src.get_enabled());
+
+                group.remove(loadingRow);
+
+                if (sources.length === 0) {
+                    group.add(this._buildNoCalendarsRow());
+                    return;
+                }
+
+                for (const src of sources) {
+                    const uid    = src.get_uid();
+                    const calExt = src.get_extension(EDataServer.SOURCE_EXTENSION_CALENDAR);
+                    const color  = calExt.get_color();
+                    const name   = src.get_display_name();
+
+                    const row = new Adw.SwitchRow({
+                        title:  GLib.markup_escape_text(name, -1),
+                        active: !disabled.has(uid),
+                    });
+
+                    // Backends report colour in whatever format they like (hex,
+                    // "rgb(...)", named, ...); Gdk.RGBA.parse() accepts all of them.
+                    const rgba = new Gdk.RGBA();
+                    if (color && rgba.parse(color)) {
+                        const dot = new Gtk.DrawingArea({
+                            content_width: 10, content_height: 10,
+                            valign: Gtk.Align.CENTER,
+                        });
+                        dot.set_draw_func((_area, cr, width, height) => {
+                            cr.setSourceRGBA(rgba.red, rgba.green, rgba.blue, rgba.alpha);
+                            cr.arc(width / 2, height / 2, Math.min(width, height) / 2, 0, 2 * Math.PI);
+                            cr.fill();
+                            cr.$dispose();
+                        });
+                        row.add_prefix(dot);
+                    }
+
+                    row.connect('notify::active', () => {
+                        if (row.get_active())
+                            disabled.delete(uid);
+                        else
+                            disabled.add(uid);
+                        settings.set_strv('disabled-calendars', [...disabled]);
+                    });
+                    group.add(row);
+                }
+            });
+        })();
     }
 
     // Evolution Data Server (which Litsycal reads directly) doesn't come

@@ -39,6 +39,7 @@ class LitsycalCalendar extends St.BoxLayout {
         this._openGoToDate     = openGoToDate;
         this._quit             = quit;
         this._iface            = new Gio.Settings({schema: 'org.gnome.desktop.interface'});
+        this._tzCache          = new Map();
         this._accent           = readAccent(this._iface);
 
         const now      = GLib.DateTime.new_now_local();
@@ -256,6 +257,7 @@ class LitsycalCalendar extends St.BoxLayout {
             this._endHandleDrag();
         this._settings.disconnectObject(this);
         this._iface.disconnectObject(this);
+        this._tzCache.clear();
         this._calManager.destroy();
         super.destroy();
     }
@@ -679,6 +681,46 @@ class LitsycalCalendar extends St.BoxLayout {
         this._agendaScroll.style = `max-height: ${maxAgenda}px;`;
     }
 
+    _makeDayButton(isToday, isSel, isWeekend) {
+        let sc = 'litsycal-day-btn';
+        if (isToday)
+            sc += ' litsycal-today';
+        else if (isSel)
+            sc += ' litsycal-selected';
+
+        const btn = new St.Button({style_class: sc, x_expand: true, track_hover: true});
+
+        if (isToday)
+            btn.style = `background-color: ${this._accent}; color: white;`;
+        else if (isSel)
+            btn.style = `background-color: ${accentAlpha(this._accent, 0.25)};`;
+        else if (isWeekend && this._weekendColorMode === 'custom')
+            btn.style = `color: ${this._weekendColor};`;
+        else if (isWeekend && this._weekendColorMode === 'default')
+            btn.add_style_class_name('litsycal-weekend');
+
+        return btn;
+    }
+
+    _makeDotRow(ds, isToday, isOverflow) {
+        const dotRow = new St.BoxLayout({style_class: 'litsycal-dot-row', x_expand: true});
+        dotRow.set_x_align(Clutter.ActorAlign.CENTER);
+        if (this._showEventDots) {
+            for (const ev of this._calManager.getEventsForDate(ds).slice(0, 3)) {
+                const dot = new St.Widget({style_class: 'litsycal-event-dot'});
+                if (this._dotColorMode === 'mono') {
+                    dot.add_style_class_name('litsycal-event-dot-mono');
+                } else {
+                    dot.style = `background-color: ${ev.color};`;
+                    if (isOverflow && !isToday)
+                        dot.add_style_class_name('litsycal-event-dot-overflow');
+                }
+                dotRow.add_child(dot);
+            }
+        }
+        return dotRow;
+    }
+
     // Uses the exact same St.Button shell (litsycal-day-btn) and behaviour as
     // _makeCell - click/keyboard select, hover tint, the hover-delay day
     // tooltip, event dots - just visually muted, since it belongs to an
@@ -700,23 +742,7 @@ class LitsycalCalendar extends St.BoxLayout {
         const dow = GLib.DateTime.new_local(y, m, d, 0, 0, 0).get_day_of_week(); // 1=Mon..7=Sun
         const isWeekend = dow === 6 || dow === 7;
 
-        let sc = 'litsycal-day-btn';
-        if (isToday)
-            sc += ' litsycal-today';
-        else if (isSel)
-            sc += ' litsycal-selected';
-
-        const btn = new St.Button({style_class: sc, x_expand: true, track_hover: true});
-
-        if (isToday)
-            btn.style = `background-color: ${this._accent}; color: white;`;
-        else if (isSel)
-            btn.style = `background-color: ${accentAlpha(this._accent, 0.25)};`;
-        else if (isWeekend && this._weekendColorMode === 'custom')
-            btn.style = `color: ${this._weekendColor};`;
-        else if (isWeekend && this._weekendColorMode === 'default')
-            btn.add_style_class_name('litsycal-weekend');
-
+        const btn = this._makeDayButton(isToday, isSel, isWeekend);
 
         const box    = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, x_expand: true, style_class: 'litsycal-cell-box'});
         const numLbl = new St.Label({
@@ -732,22 +758,7 @@ class LitsycalCalendar extends St.BoxLayout {
         // Itsycal), just faded via litsycal-event-dot-overflow so an
         // overflow week still reads as "not the active month" - unless this
         // is today, which is already called out via the accent background.
-        const dotRow = new St.BoxLayout({style_class: 'litsycal-dot-row', x_expand: true});
-        dotRow.set_x_align(Clutter.ActorAlign.CENTER);
-        if (this._showEventDots) {
-            for (const ev of this._calManager.getEventsForDate(ds).slice(0, 3)) {
-                const dot = new St.Widget({style_class: 'litsycal-event-dot'});
-                if (this._dotColorMode === 'mono') {
-                    dot.add_style_class_name('litsycal-event-dot-mono');
-                } else {
-                    dot.style = `background-color: ${ev.color};`;
-                    if (!isToday)
-                        dot.add_style_class_name('litsycal-event-dot-overflow');
-                }
-                dotRow.add_child(dot);
-            }
-        }
-        box.add_child(dotRow);
+        box.add_child(this._makeDotRow(ds, isToday, true));
         btn.set_child(box);
 
         btn.accessible_name = this._cellAccessibleName(ds, day, isToday);
@@ -776,42 +787,14 @@ class LitsycalCalendar extends St.BoxLayout {
     }
 
     _makeCell(day, ds, isToday, isSel, isWeekend) {
-        let sc = 'litsycal-day-btn';
-        if (isToday)
-            sc += ' litsycal-today';
-        else if (isSel)
-            sc += ' litsycal-selected';
-
-        const btn = new St.Button({style_class: sc, x_expand: true, track_hover: true});
-
-        if (isToday)
-            btn.style = `background-color: ${this._accent}; color: white;`;
-        else if (isSel)
-            btn.style = `background-color: ${accentAlpha(this._accent, 0.25)};`;
-        else if (isWeekend && this._weekendColorMode === 'custom')
-            btn.style = `color: ${this._weekendColor};`;
-        else if (isWeekend && this._weekendColorMode === 'default')
-            btn.add_style_class_name('litsycal-weekend');
-
+        const btn = this._makeDayButton(isToday, isSel, isWeekend);
 
         const box    = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, x_expand: true, style_class: 'litsycal-cell-box'});
         const numLbl = new St.Label({text: String(day), x_expand: true, style_class: 'litsycal-cell-num'});
         numLbl.clutter_text.set_x_align(Clutter.ActorAlign.CENTER);
         box.add_child(numLbl);
 
-        const dotRow = new St.BoxLayout({style_class: 'litsycal-dot-row', x_expand: true});
-        dotRow.set_x_align(Clutter.ActorAlign.CENTER);
-        if (this._showEventDots) {
-            for (const ev of this._calManager.getEventsForDate(ds).slice(0, 3)) {
-                const dot = new St.Widget({style_class: 'litsycal-event-dot'});
-                if (this._dotColorMode === 'mono')
-                    dot.add_style_class_name('litsycal-event-dot-mono');
-                else
-                    dot.style = `background-color: ${ev.color};`;
-                dotRow.add_child(dot);
-            }
-        }
-        box.add_child(dotRow);
+        box.add_child(this._makeDotRow(ds, isToday, false));
         btn.set_child(box);
 
         btn.accessible_name = this._cellAccessibleName(ds, day, isToday);
@@ -909,6 +892,25 @@ class LitsycalCalendar extends St.BoxLayout {
         }
     }
 
+    _placeTooltip(box, fallbackW, fallbackH, place) {
+        if (this._tooltipIdleId)
+            GLib.source_remove(this._tooltipIdleId);
+        this._tooltipIdleId = GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+            this._tooltipIdleId = null;
+            const monitor = Main.layoutManager.monitors[
+                Main.layoutManager.findIndexForActor(this)
+            ] ?? Main.layoutManager.primaryMonitor;
+            const panelH = Main.panel.get_height();
+            const boxW = box.get_width()  || fallbackW;
+            const boxH = box.get_height() || fallbackH;
+            let [x, y] = place(monitor, panelH, boxW, boxH);
+            x = Math.max(monitor.x + 4, Math.min(x, monitor.x + monitor.width - boxW - 4));
+            box.set_position(x, y);
+            box.opacity = 255;
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
     _showCellTooltip(ds, anchorBtn) {
         if (!anchorBtn.hover)
             return; // pointer left before the delay elapsed
@@ -964,30 +966,18 @@ class LitsycalCalendar extends St.BoxLayout {
         Main.layoutManager.uiGroup.add_child(box);
         this._tooltipBox = box;
 
-        if (this._tooltipIdleId)
-            GLib.source_remove(this._tooltipIdleId);
-        this._tooltipIdleId = GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
-            this._tooltipIdleId = null;
-            const monitor = Main.layoutManager.monitors[
-                Main.layoutManager.findIndexForActor(this)
-            ] ?? Main.layoutManager.primaryMonitor;
-            const panelH = Main.panel.get_height();
+        this._placeTooltip(box, 200, 60, (monitor, panelH, boxW, boxH) => {
             const [ax, ay] = anchorBtn.get_transformed_position();
             const aw = anchorBtn.get_width();
-            const boxW = box.get_width()  || 200;
-            const boxH = box.get_height() || 60;
 
             let x = ax + aw + 8;
             if (x + boxW > monitor.x + monitor.width - 4)
                 x = ax - boxW - 8;
-            x = Math.max(monitor.x + 4, Math.min(x, monitor.x + monitor.width - boxW - 4));
 
             let posY = ay;
             posY = Math.max(monitor.y + panelH + 4, Math.min(posY, monitor.y + monitor.height - boxH - 4));
 
-            box.set_position(x, posY);
-            box.opacity = 255;
-            return GLib.SOURCE_REMOVE;
+            return [x, posY];
         });
     }
 
@@ -1023,30 +1013,19 @@ class LitsycalCalendar extends St.BoxLayout {
         Main.layoutManager.uiGroup.add_child(box);
         this._tooltipBox = box;
 
-        if (this._tooltipIdleId)
-            GLib.source_remove(this._tooltipIdleId);
-        this._tooltipIdleId = GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
-            this._tooltipIdleId = null;
-            const monitor = Main.layoutManager.monitors[
-                Main.layoutManager.findIndexForActor(this)
-            ] ?? Main.layoutManager.primaryMonitor;
+        this._placeTooltip(box, 160, 32, (monitor, panelH, boxW, boxH) => {
             const [ax, ay] = anchorBtn.get_transformed_position();
             const aw = anchorBtn.get_width();
-            const boxW = box.get_width()  || 160;
-            const boxH = box.get_height() || 32;
 
-            let x = Math.round(ax + aw / 2 - boxW / 2);
-            x = Math.max(monitor.x + 4, Math.min(x, monitor.x + monitor.width - boxW - 4));
+            const x = Math.round(ax + aw / 2 - boxW / 2);
 
             // Above the footer, which sits at the bottom of the popup; flipped
             // below the button only if that would run off the top of the monitor.
             let y = ay - boxH - 6;
-            if (y < monitor.y + Main.panel.get_height() + 4)
+            if (y < monitor.y + panelH + 4)
                 y = ay + anchorBtn.get_height() + 6;
 
-            box.set_position(x, y);
-            box.opacity = 255;
-            return GLib.SOURCE_REMOVE;
+            return [x, y];
         });
     }
 
@@ -1286,13 +1265,21 @@ class LitsycalCalendar extends St.BoxLayout {
     // Rebuilds the time zone rows sorted west-to-east by current UTC offset
     // (accounting for DST, since this is always "right now"). Invalid ids
     // (already flagged in Preferences) are silently skipped.
+    _cachedTimeZone(id) {
+        if (this._tzCache.has(id))
+            return this._tzCache.get(id);
+        const tz = GLib.TimeZone.new_identifier(id);
+        this._tzCache.set(id, tz);
+        return tz;
+    }
+
     _updateTimeZones() {
         this._tzBox.destroy_all_children();
 
         const nowUtc = GLib.DateTime.new_now_utc();
         const zones = this._timezones
             .map(id => {
-                const tz = GLib.TimeZone.new_identifier(id);
+                const tz = this._cachedTimeZone(id);
                 if (!tz)
                     return null;
                 const offset = tz.get_offset(tz.find_interval(GLib.TimeType.UNIVERSAL, nowUtc.to_unix()));
@@ -1318,7 +1305,7 @@ class LitsycalCalendar extends St.BoxLayout {
         // deliberately set in Preferences rather than read from the
         // system's own local zone, since a traveling user's system clock
         // may already be showing wherever they physically are right now.
-        const homeTz = this._homeTimezone && GLib.TimeZone.new_identifier(this._homeTimezone);
+        const homeTz = this._homeTimezone && this._cachedTimeZone(this._homeTimezone);
         const homeOffset = homeTz
             ? homeTz.get_offset(homeTz.find_interval(GLib.TimeType.UNIVERSAL, nowUtc.to_unix()))
             : null;
