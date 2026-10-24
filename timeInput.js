@@ -6,7 +6,7 @@
 const pad = n => String(n).padStart(2, '0');
 
 /**
- * @param {number} minutes minutes since midnight
+ * @param {number} minutes minutes since midnight (0..1439)
  * @returns {string} 'HH:MM'
  */
 export function toHHMM(minutes) {
@@ -28,7 +28,7 @@ export function fromHHMM(str) {
 }
 
 /**
- * @param {number} minutes minutes since midnight
+ * @param {number} minutes minutes since midnight (0..1439)
  * @param {string} timeFormat the 'time-format' setting, '24h' or '12h'
  * @returns {string} '14:05' or '2:05pm', same shapes as the rest of the UI
  */
@@ -81,11 +81,11 @@ export function parseTimeInput(text) {
     return h * 60 + min;
 }
 
-// A meeting's time span as one compact string: "3:00-4:30pm" (am/pm written
-// once when both ends share it), "11:30am-1:00pm", "15:00-16:30". startDay/
+// A meeting's time span as one compact string: "3:00–4:30pm" (am/pm written
+// once when both ends share it), "11:30am–1:00pm", "15:00–16:30". startDay/
 // endDay are weekday labels for when the day matters; an endDay means the
 // span crosses midnight, so both ends get written in full:
-// "Mon 11:00pm - Tue 12:30am".
+// "Mon 11:00pm – Tue 12:30am".
 /**
  * @param {object} span
  * @param {number} span.startMin minutes since midnight

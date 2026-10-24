@@ -188,8 +188,10 @@ export class SettingsMenuPanel {
         }
         if (this._box) {
             this._box.disconnectObject(this);
-            Main.popModal(this._grab);
-            this._grab = null;
+            if (this._grab) {
+                Main.popModal(this._grab);
+                this._grab = null;
+            }
             Main.layoutManager.uiGroup.remove_child(this._box);
             this._box.destroy();
             this._box = null;

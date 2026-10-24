@@ -1,10 +1,16 @@
-import EDataServer from 'gi://EDataServer';
-import ECal        from 'gi://ECal';
-import ICalGLib    from 'gi://ICalGLib';
-import GLib        from 'gi://GLib';
-import Gio         from 'gi://Gio';
+import GLib from 'gi://GLib';
+import Gio  from 'gi://Gio';
 
 import {MAX_EXTRA_WEEK_ROWS} from './helpers.js';
+
+// Evolution Data Server typelibs (EDataServer/ECal/ICalGLib) aren't
+// guaranteed to be installed - a static top-level import throws at module
+// load and takes down the whole extension, so they're loaded lazily by
+// _loadBackends() below (same pattern as Geoclue/GWeather in prefs.js).
+// Every use below only runs once these are non-null (see _loadBackends()).
+let EDataServer = null;
+let ECal = null;
+let ICalGLib = null;
 
 // How often the registry's private main context is run (see _initRegistry()):
 // quickly until the registry exists, so calendars load without delay, then
@@ -13,6 +19,10 @@ import {MAX_EXTRA_WEEK_ROWS} from './helpers.js';
 // through the clients' own views on the Shell's main context.
 const REGISTRY_STARTUP_PUMP_MS  = 100;
 const REGISTRY_PUMP_INTERVAL_S  = 5;
+// Caps per _pumpRegistry() call: anything still pending is resumed on the
+// next 100ms/5s tick, so a flooded context can't freeze the Shell.
+const MAX_REGISTRY_PUMP_ITERATIONS = 100;
+const REGISTRY_PUMP_BUDGET_US = 8000; // 8ms, in GLib monotonic µs
 
 // EDS calendar backends report colour in whatever format they like - hex,
 // "rgb(r,g,b)"/"rgba(r,g,b,a)" (Google's backend, after a colour change), or
@@ -22,14 +32,18 @@ const REGISTRY_PUMP_INTERVAL_S  = 5;
 function normalizeColor(color, fallback = '#3584e4') {
     if (!color)
         return fallback;
-    if (/^#[0-9a-f]{3,8}$/i.test(color))
+    if (/^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(color))
         return color;
     const m = color.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
     if (m) {
-        const hex = n => Number(n).toString(16).padStart(2, '0');
+        const hex = n => Math.min(255, Math.max(0, Math.trunc(Number(n)))).toString(16).padStart(2, '0');
         return `#${hex(m[1])}${hex(m[2])}${hex(m[3])}`;
     }
-    return color; // named colour or unrecognized format - CSS still accepts it
+    // Only a single-word named colour is safe to pass through to style=;
+    // anything else (with ';', spaces or symbols) falls back.
+    if (/^[a-z]+$/i.test(color))
+        return color;
+    return fallback;
 }
 
 // An EDS call cut short by destroy() cancelling this._cancellable: not a
@@ -55,8 +69,11 @@ export class CalendarManager {
         this._year        = null;
         this._month       = null;
         this._available   = false;
+        this._destroyed   = false;
         this._searchToken = 0; // see searchEvents() - discards stale/out-of-order results
         this._fetchToken  = 0; // see fetchMonth() - discards a superseded batch's stale onDone
+        this._fetchSeq    = new Map(); // uid -> latest issued _fetchFromClient() seq; see there
+        this._ingestedSeq = new Map(); // uid -> highest seq already ingested; see _fetchFromClient()
         this._disabled  = new Set(settings.get_strv('disabled-calendars'));
         settings.connectObject('changed::disabled-calendars', () => {
             this._disabled = new Set(settings.get_strv('disabled-calendars'));
@@ -69,10 +86,36 @@ export class CalendarManager {
         // queued (see _initRegistry()) - which must not reach our handlers
         // while GJS is shutting down.
         global.connectObject('shutdown', () => this._registry?.disconnectObject(this), this);
-        this._initRegistry();
+        this._loadBackends();
     }
 
     // Init
+
+    // Loads the optional Evolution Data Server typelibs dynamically: on a
+    // system without them (e.g. Debian without evolution-data-server) the
+    // import fails, and a static import would have taken down the whole
+    // extension before any code ran. On failure _available stays false -
+    // the calendar grid, badge and clocks keep working without events, and
+    // isAvailable() already blocks create/search/edit in calendarWidget.js.
+    // Never throws.
+    async _loadBackends() {
+        try {
+            const [eds, ecal, ical] = await Promise.all([
+                import('gi://EDataServer'),
+                import('gi://ECal'),
+                import('gi://ICalGLib'),
+            ]);
+            EDataServer = eds.default;
+            ECal = ecal.default;
+            ICalGLib = ical.default;
+        } catch (e) {
+            logError(e, 'CalendarManager: Evolution Data Server libraries not found - calendar events unavailable');
+            return;
+        }
+        if (this._destroyed)
+            return;
+        this._initRegistry();
+    }
 
     // The registry lives on a private main context, not the Shell's.
     // ESourceRegistry dispatches its signals (and its ESources') on whatever
@@ -133,8 +176,20 @@ export class CalendarManager {
     }
 
     // Dispatches whatever the registry has queued on its private context.
+    // Bounded by iterations AND a time budget: one iteration dispatches
+    // every ready callback, so the iteration cap alone can't bound the
+    // work. Still pending past the deadline resumes on the next tick;
+    // a single isolated iteration can itself exceed the budget (that
+    // part is uncontrollable) - the loop just won't chain another one.
     _pumpRegistry() {
-        while (this._registryContext.pending())
+        // _initRegistry() may never have run (backends failed to load, or
+        // destroy() beat the async load) - nothing to pump then.
+        if (!this._registryContext)
+            return;
+        const deadline = GLib.get_monotonic_time() + REGISTRY_PUMP_BUDGET_US;
+        let iterations = 0;
+        while (this._registryContext.pending() && iterations++ < MAX_REGISTRY_PUMP_ITERATIONS &&
+               GLib.get_monotonic_time() < deadline)
             this._registryContext.iteration(false);
     }
 
@@ -184,6 +239,9 @@ export class CalendarManager {
 
     _dropSource(uid) {
         this._stopView(uid);
+        // Clear the seq maps so a re-added source restarts its fetch sequence instead of inheriting a stale watermark.
+        this._fetchSeq.delete(uid);
+        this._ingestedSeq.delete(uid);
         if (!this._clients.delete(uid))
             return;
         this._events = this._events.filter(e => e.clientUid !== uid);
@@ -284,6 +342,7 @@ export class CalendarManager {
         this._year   = year;
         this._month  = month;
         this._events = [];
+        this._reindex();
         const token = ++this._fetchToken;
         if (this._clients.size === 0) {
             this._onEventsChanged([]);
@@ -293,13 +352,20 @@ export class CalendarManager {
         this._restartViews();
         const state = {pending: this._clients.size};
         for (const uid of this._clients.keys()) {
-            this._fetchFromClient(uid, year, month, () => {
-                if (token !== this._fetchToken)
+            this._fetchFromClient(uid, year, month, ingested => {
+                if (token !== this._fetchToken) {
+                    // Rescue path: fresh data for the same month (a cross-month batch is already barred) must not stay invisible.
+                    if (ingested)
+                        this._onEventsChanged(this._events);
                     return;
+                }
                 state.pending--;
-                if (state.pending === 0)
+                if (state.pending === 0) {
+                    this._reindex();
+                    this._onEventsChanged(this._events);
                     onDone?.();
-            });
+                }
+            }, true);
         }
     }
 
@@ -350,27 +416,36 @@ export class CalendarManager {
     }
 
     _searchClient(uid, sexp, token, state, callback) {
-        const {client, color} = this._clients.get(uid);
-        client.get_object_list_as_comps(sexp, this._cancellable, (_obj, res) => {
-            if (token !== this._searchToken)
-                return; // superseded by a newer search - drop this result
-            try {
-                const [, comps] = client.get_object_list_as_comps_finish(res);
-                for (const comp of comps ?? []) {
-                    const ev = this._parseComp(comp, color, uid);
-                    if (ev)
-                        state.results.push(ev);
-                }
-            } catch (e) {
-                if (isCancelled(e))
-                    return;
-                logError(e, `CalendarManager: search failed for source ${uid}`);
-            }
+        const finishIfDone = () => {
             state.pending--;
             if (state.pending === 0) {
                 state.results.sort((a, b) => `${a.date} ${a.time ?? ''}`.localeCompare(`${b.date} ${b.time ?? ''}`));
                 callback(state.results);
             }
+        };
+        const entry = this._clients.get(uid);
+        if (!entry) {
+            finishIfDone();
+            return;
+        }
+        const {client, color} = entry;
+        client.get_object_list_as_comps(sexp, this._cancellable, (_obj, res) => {
+            if (token !== this._searchToken)
+                return; // superseded by a newer search - drop this result
+            try {
+                const [, comps] = client.get_object_list_as_comps_finish(res);
+                const localTz = comps?.length ? this._resolveLocalTimezone() : null;
+                for (const comp of comps ?? []) {
+                    const ev = this._parseComp(comp, color, uid, localTz);
+                    if (ev)
+                        state.results.push(ev);
+                }
+            } catch (e) {
+                if (isCancelled(e))
+                    return; // cancelled (destroy): callback is moot, keep dropping
+                logError(e, `CalendarManager: search failed for source ${uid}`);
+            }
+            finishIfDone();
         });
     }
 
@@ -404,45 +479,79 @@ export class CalendarManager {
                `(make-time "${this._stamp(rangeEnd)}"))`;
     }
 
-    // onDone (optional) fires once this one client's fetch finishes, success
-    // or failure - used by fetchMonth() above to know when every client in
-    // one batch has responded. Every other caller (live-update refetch of
-    // a single client) just omits it.
-    _fetchFromClient(uid, year, month, onDone) {
+    // onDone (optional) fires once this one client's fetch finishes, with
+    // true only if it actually ingested, false otherwise - used by
+    // fetchMonth() above to know when every client in one batch has
+    // responded. Every other caller (live-update refetch of a single
+    // client) just omits it.
+    _fetchFromClient(uid, year, month, onDone, batch = false) {
         const entry = this._clients.get(uid);
         if (!entry) {
-            onDone?.();
+            onDone?.(false);
             return;
         }
         const {client, color} = entry;
 
+        // Per-client ingestion watermark: whoever was INGESTED last for
+        // this uid wins - not whoever was started last. _fetchSeq only
+        // issues a growing seq per fetch; _ingestedSeq records the highest
+        // seq actually ingested. A success older than the watermark is a
+        // stale response (a newer one already landed): don't ingest, but
+        // still count the batch caller down (it dies on its own token
+        // guard; for live callers with no onDone this is a no-op). A FAILED
+        // newer fetch never touches the watermark, so an older fetch that
+        // responds afterwards can still ingest - otherwise one failed
+        // fetch would discard every older good response and leave stale
+        // data in place forever.
+        const seq = (this._fetchSeq.get(uid) ?? 0) + 1;
+        this._fetchSeq.set(uid, seq);
+
         const sexp = this._rangeSexp(year, month);
 
         client.get_object_list_as_comps(sexp, this._cancellable, (_obj, res) => {
+            let ingested = false;
             try {
                 const [, comps] = client.get_object_list_as_comps_finish(res);
-                this._ingestComps(comps ?? [], color, uid);
+                if (year !== this._year || month !== this._month) {
+                    onDone?.(false);
+                    return;
+                }
+                if (seq < (this._ingestedSeq.get(uid) ?? 0)) {
+                    onDone?.(false);
+                    return;
+                }
+                this._ingestComps(comps ?? [], color, uid, !batch);
+                this._ingestedSeq.set(uid, seq);
+                ingested = true;
             } catch (e) {
                 if (isCancelled(e))
                     return;
                 logError(e, `CalendarManager: failed to fetch events for source ${uid}`);
-                this._onEventsChanged(this._events);
+                if (!batch)
+                    this._onEventsChanged(this._events);
             }
-            onDone?.();
+            onDone?.(ingested);
         });
     }
 
-    _ingestComps(comps, color, clientUid) {
+    _ingestComps(comps, color, clientUid, notify = true) {
         this._events = this._events.filter(e => e.clientUid !== clientUid);
 
+        const localTz = comps.length ? this._resolveLocalTimezone() : null;
         for (const comp of comps) {
-            const ev = this._parseComp(comp, color, clientUid);
+            const ev = this._parseComp(comp, color, clientUid, localTz);
             if (ev)
                 this._events.push(ev);
         }
 
+        // Always reindex: _byDate must stay consistent with _events even
+        // on the batch path (notify=false), since minute-tick readers
+        // (badge/countdown) can run mid-batch. The saving of a batch is
+        // skipping _onEventsChanged - the UI rebuild - until fetchMonth's
+        // close, not skipping the (cheap) reindex.
         this._reindex();
-        this._onEventsChanged(this._events);
+        if (notify)
+            this._onEventsChanged(this._events);
     }
 
     // The system's local timezone as an ICalGLib.Timezone usable with
@@ -479,7 +588,7 @@ export class CalendarManager {
     // from a raw ECal component. Returns null (logging) rather than
     // throwing on a single malformed component, so one bad event never
     // takes down a whole batch.
-    _parseComp(comp, color, clientUid) {
+    _parseComp(comp, color, clientUid, localTz = null) {
         try {
             const title = comp.get_summary()?.get_value() ?? '';
             const dtstart = comp.get_dtstart();
@@ -495,11 +604,10 @@ export class CalendarManager {
             // correct time for free, instead of the organizer's raw digits
             // silently mislabeled as the viewer's local time.
             let originalTzid = null;
-            let localTz = null;
             if (!isAllDay) {
                 const tzid = dtstart.get_tzid();
                 if (tzid || tObj.is_utc()) {
-                    localTz = this._resolveLocalTimezone();
+                    localTz ??= this._resolveLocalTimezone();
                     const converted = this._convertToLocal(tObj, tzid, localTz);
                     // Only report an originalTzid (and only display the
                     // converted digits) when conversion actually succeeded -
@@ -524,55 +632,13 @@ export class CalendarManager {
 
             let time = null;
             let endDate = null;
-            if (!isAllDay) {
-                const pad = n => String(n).padStart(2, '0');
-                const startStr = `${pad(tObj.get_hour())}:${pad(tObj.get_minute())}`;
-                const dtend = comp.get_dtend();
-                let eObj = dtend?.get_value();
-                if (eObj && !eObj.is_date()) {
-                    const eTzid = dtend.get_tzid();
-                    if (eTzid || eObj.is_utc()) {
-                        localTz ??= this._resolveLocalTimezone();
-                        eObj = this._convertToLocal(eObj, eTzid, localTz) ?? eObj;
-                    }
-                }
-                const endStr = eObj && !eObj.is_date()
-                    ? `${pad(eObj.get_hour())}:${pad(eObj.get_minute())}`
-                    : null;
-                time = endStr ? `${startStr} - ${endStr}` : startStr;
+            if (!isAllDay)
+                ({time, endDate} = this._parseTimeRange(comp, tObj, date, localTz));
+            else
+                endDate = this._parseAllDayEnd(comp, date);
 
-                if (eObj) {
-                    const eDate = `${eObj.get_year()}-${String(eObj.get_month()).padStart(2, '0')}-${String(eObj.get_day()).padStart(2, '0')}`;
-                    if (eDate !== date)
-                        endDate = eDate;
-                }
-            }
-
-            let notes = null, url = null, location = null, recurrence = null, alarm = null,
-                recurrenceId = null, attendees = [];
-            const ic = comp.get_icalcomponent();
-            if (ic) {
-                notes = ic.get_description() || null;
-                const up = ic.get_first_property(ICalGLib.PropertyKind.URL_PROPERTY);
-                url = up ? up.get_value_as_string() || null : null;
-                location = ic.get_location() || null;
-                if (notes    === '')
-                    notes    = null;
-                if (url      === '')
-                    url      = null;
-                if (location === '')
-                    location = null;
-
-                recurrence = this._parseRecurrence(ic);
-                alarm      = this._parseAlarm(ic);
-                attendees  = this._parseAttendees(ic);
-
-                // Present only on one occurrence of a recurring series (never
-                // on the master) - identifies which occurrence this is, so a
-                // "delete this event only" can target it specifically.
-                const ridProp = ic.get_first_property(ICalGLib.PropertyKind.RECURRENCEID_PROPERTY);
-                recurrenceId = ridProp ? ridProp.get_value_as_string() || null : null;
-            }
+            const {notes, url, location, recurrence, alarm, recurrenceId, attendees} =
+                this._parseMeta(comp);
 
             return {
                 date, title, time, color, allDay: isAllDay, endDate,
@@ -583,6 +649,82 @@ export class CalendarManager {
             logError(e, `CalendarManager: failed to parse calendar component ${comp.get_uid() ?? '?'}`);
             return null;
         }
+    }
+
+    _parseTimeRange(comp, tObj, date, localTz = null) {
+        const pad = n => String(n).padStart(2, '0');
+        const startStr = `${pad(tObj.get_hour())}:${pad(tObj.get_minute())}`;
+        const dtend = comp.get_dtend();
+        let eObj = dtend?.get_value();
+        if (eObj && !eObj.is_date()) {
+            const eTzid = dtend.get_tzid();
+            if (eTzid || eObj.is_utc()) {
+                localTz ??= this._resolveLocalTimezone();
+                eObj = this._convertToLocal(eObj, eTzid, localTz) ?? eObj;
+            }
+        }
+        const endStr = eObj && !eObj.is_date()
+            ? `${pad(eObj.get_hour())}:${pad(eObj.get_minute())}`
+            : null;
+        // This 'HH:MM - HH:MM' shape is split back apart by datesSpanned() and helpers.eventTimeRange().
+        const time = endStr ? `${startStr} - ${endStr}` : startStr;
+
+        let endDate = null;
+        if (eObj) {
+            const eDate = `${eObj.get_year()}-${String(eObj.get_month()).padStart(2, '0')}-${String(eObj.get_day()).padStart(2, '0')}`;
+            if (eDate !== date)
+                endDate = eDate;
+        }
+        return {time, endDate};
+    }
+
+    _parseAllDayEnd(comp, date) {
+        // All-day DTEND;VALUE=DATE is exclusive: the last visible
+        // day is DTEND - 1. Only a span past the start day earns an
+        // endDate (DTEND = start+1 is a plain 1-day event, as
+        // before); endDate is that last visible day, matching
+        // datesSpanned()/formatEventWhen().
+        const dtend = comp.get_dtend();
+        const eObj = dtend?.get_value();
+        if (eObj?.is_date()) {
+            const last = GLib.DateTime.new_utc(
+                eObj.get_year(), eObj.get_month(), eObj.get_day(), 0, 0, 0)?.add_days(-1);
+            if (last) {
+                const lastStr = `${last.get_year()}-${String(last.get_month()).padStart(2, '0')}-${String(last.get_day_of_month()).padStart(2, '0')}`;
+                if (lastStr > date)
+                    return lastStr;
+            }
+        }
+        return null;
+    }
+
+    _parseMeta(comp) {
+        let notes = null, url = null, location = null, recurrence = null, alarm = null,
+            recurrenceId = null, attendees = [];
+        const ic = comp.get_icalcomponent();
+        if (ic) {
+            notes = ic.get_description() || null;
+            const up = ic.get_first_property(ICalGLib.PropertyKind.URL_PROPERTY);
+            url = up ? up.get_value_as_string() || null : null;
+            location = ic.get_location() || null;
+            if (notes    === '')
+                notes    = null;
+            if (url      === '')
+                url      = null;
+            if (location === '')
+                location = null;
+
+            recurrence = this._parseRecurrence(ic);
+            alarm      = this._parseAlarm(ic);
+            attendees  = this._parseAttendees(ic);
+
+            // Present only on one occurrence of a recurring series (never
+            // on the master) - identifies which occurrence this is, so a
+            // "delete this event only" can target it specifically.
+            const ridProp = ic.get_first_property(ICalGLib.PropertyKind.RECURRENCEID_PROPERTY);
+            recurrenceId = ridProp ? ridProp.get_value_as_string() || null : null;
+        }
+        return {notes, url, location, recurrence, alarm, recurrenceId, attendees};
     }
 
     // Only understands a plain FREQ/INTERVAL/UNTIL rule (what our UI can build).
@@ -599,11 +741,36 @@ export class CalendarManager {
                               ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].includes(parts.FREQ);
             if (!isSimple)
                 return {raw};
+            // A malformed UNTIL/INTERVAL falls back to {raw}, preserving the original rule untouched.
+            if (parts.UNTIL && !/^\d{8}(T.*)?$/.test(parts.UNTIL))
+                return {raw};
+            let interval = 1;
+            if (parts.INTERVAL !== undefined) {
+                interval = parseInt(parts.INTERVAL, 10);
+                if (!Number.isFinite(interval) || interval < 1)
+                    return {raw};
+            }
 
             const until = parts.UNTIL
                 ? `${parts.UNTIL.slice(0, 4)}-${parts.UNTIL.slice(4, 6)}-${parts.UNTIL.slice(6, 8)}`
                 : null;
-            return {freq: parts.FREQ, interval: parts.INTERVAL ? parseInt(parts.INTERVAL) : 1, until};
+            // Preserve UNTIL's time-of-day suffix (e.g. '100000Z') when the
+            // source rule has one: the UI's until picker only edits the
+            // date, and _buildRRuleLine() re-emits this suffix with whatever
+            // date is current then. Date-only UNTILs stay suffix-less and
+            // keep the historical end-of-day behaviour there.
+            const tIdx = parts.UNTIL?.indexOf('T') ?? -1;
+            const untilTime = tIdx >= 0 && parts.UNTIL.slice(tIdx + 1)
+                ? parts.UNTIL.slice(tIdx + 1)
+                : null;
+            const rec = {
+                freq: parts.FREQ,
+                interval,
+                until,
+            };
+            if (untilTime)
+                rec.untilTime = untilTime;
+            return rec;
         } catch {
             return {raw: prop.get_value_as_string() ?? ''};
         }
@@ -710,6 +877,10 @@ export class CalendarManager {
     datesSpanned(ev) {
         if (!ev.endDate || ev.endDate === ev.date)
             return [ev.date];
+        // A malformed end before the start would otherwise fabricate a
+        // full MAX_SPAN_DAYS of buckets without ever hitting lastDate.
+        if (ev.endDate < ev.date)
+            return [ev.date];
 
         // An event ending exactly at midnight (e.g. 22:00 -> 00:00 next day)
         // occupies zero minutes of its DTEND date - treat the day before as
@@ -718,22 +889,35 @@ export class CalendarManager {
         let lastDate = ev.endDate;
         if (ev.time?.split(' - ')[1]?.trim() === '00:00') {
             const [ey, em, ed] = ev.endDate.split('-').map(Number);
-            const prev = GLib.DateTime.new_local(ey, em, ed, 0, 0, 0).add_days(-1);
-            lastDate = `${prev.get_year()}-${String(prev.get_month()).padStart(2, '0')}-${String(prev.get_day_of_month()).padStart(2, '0')}`;
-            if (lastDate === ev.date)
-                return [ev.date];
+            const prev = GLib.DateTime.new_local(ey, em, ed, 0, 0, 0)?.add_days(-1);
+            if (prev) {
+                lastDate = `${prev.get_year()}-${String(prev.get_month()).padStart(2, '0')}-${String(prev.get_day_of_month()).padStart(2, '0')}`;
+                if (lastDate === ev.date)
+                    return [ev.date];
+            }
         }
 
         const [sy, sm, sd] = ev.date.split('-').map(Number);
+        // new_local() returns null when local midnight doesn't exist that
+        // day (e.g. a DST jump at 00:00, America/Santiago) - degrade to the
+        // start day alone instead of crashing _reindex() on the null.
         let cur = GLib.DateTime.new_local(sy, sm, sd, 0, 0, 0);
+        if (!cur)
+            return [ev.date];
         const dates = [];
-        const MAX_SPAN_DAYS = 366; // guard against malformed/absurd ranges
+        // Guard against malformed ICS (an absurd DTEND would otherwise
+        // bucket the event under decades of days). Sized for a real
+        // long-running event - up to ~10 years - not just one year, or a
+        // multi-year event would vanish from the index after its first year.
+        const MAX_SPAN_DAYS = 3650;
         for (let i = 0; i < MAX_SPAN_DAYS; i++) {
             const ds = `${cur.get_year()}-${String(cur.get_month()).padStart(2, '0')}-${String(cur.get_day_of_month()).padStart(2, '0')}`;
             dates.push(ds);
             if (ds === lastDate)
                 break;
             cur = cur.add_days(1);
+            if (!cur)
+                break;
         }
         return dates;
     }
@@ -752,7 +936,10 @@ export class CalendarManager {
             r += `;INTERVAL=${recurrence.interval}`;
         if (recurrence.until) {
             const [uy, um, ud] = recurrence.until.split('-').map(Number);
-            r += `;UNTIL=${uy}${pad(um)}${pad(ud)}T235959Z`;
+            // Re-emit the time-of-day the source UNTIL carried (see
+            // _parseRecurrence); only a date-only source UNTIL, or one the
+            // user typed fresh, gets the historical end-of-day stamp.
+            r += `;UNTIL=${uy}${pad(um)}${pad(ud)}T${recurrence.untilTime || '235959Z'}`;
         }
         return [`RRULE:${r}`];
     }
@@ -763,12 +950,24 @@ export class CalendarManager {
         if (alarm.raw)
             return alarm.raw.flatMap(block => block.split(/\r?\n/).filter(Boolean));
 
-        const min = alarm.minutesBefore;
-        const days  = Math.floor(min / 1440);
-        const rem   = min % 1440;
+        const min = Math.trunc(alarm.minutesBefore);
+        if (!Number.isFinite(min))
+            return [];
+        // A negative minutesBefore is an alarm *after* the start (parsed
+        // from e.g. TRIGGER:PT10M): its duration is positive and unsigned.
+        // Decomposing the signed value directly produced invalid output
+        // like '-P-1DT-1H-10M', so decompose the magnitude and pick the
+        // sign prefix from the original value. Zero/positives unchanged.
+        const absMin = Math.abs(min);
+        const days  = Math.floor(absMin / 1440);
+        const rem   = absMin % 1440;
         const hours = Math.floor(rem / 60);
         const mins  = rem % 60;
-        let trigger = min === 0 ? 'PT0M' : '-P';
+        let trigger = 'PT0M';
+        if (min > 0)
+            trigger = '-P';
+        else if (min < 0)
+            trigger = 'P';
         if (min !== 0) {
             if (days)
                 trigger += `${days}D`;
@@ -790,14 +989,26 @@ export class CalendarManager {
             notes, url, location, recurrence, alarm,
         } = fields;
         const pad       = n => String(n).padStart(2, '0');
-        const [y, m, d] = date.split('-').map(Number);
-        const escText   = s => s.replace(/\\/g, '\\\\').replace(/\r?\n/g, '\\n').replace(/,/g, '\\,');
+        const [y, m, d] = (date ?? '').split('-').map(Number);
+        if (![y, m, d].every(Number.isFinite))
+            throw new Error('Invalid date');
+        const escText   = s => s.replace(/\\/g, '\\\\').replace(/\r\n|\r|\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
 
         let dtLines;
         if (allDay) {
-            // DTEND is exclusive, so it's the following day - through GLib so
-            // month/year boundaries roll over, in UTC so no DST shift applies.
-            const next = GLib.DateTime.new_utc(y, m, d, 0, 0, 0).add_days(1);
+            // DTEND is exclusive, so it's the day after the last visible
+            // day: endDate (when it's past the start) else the start itself.
+            // Through GLib so month/year boundaries roll over, in UTC so no
+            // DST shift applies.
+            const [ly, lm, ld] = (endDate && endDate > date ? endDate : date).split('-').map(Number);
+            if (![ly, lm, ld].every(Number.isFinite) || !GLib.DateTime.new_utc(y, m, d, 0, 0, 0))
+                throw new Error('Invalid date');
+            const lastDay = GLib.DateTime.new_utc(ly, lm, ld, 0, 0, 0);
+            if (!lastDay)
+                throw new Error('Invalid date');
+            const next = lastDay.add_days(1);
+            if (!next)
+                throw new Error('Invalid date');
             dtLines = [
                 `DTSTART;VALUE=DATE:${y}${pad(m)}${pad(d)}`,
                 `DTEND;VALUE=DATE:${next.get_year()}${pad(next.get_month())}${pad(next.get_day_of_month())}`,
@@ -811,6 +1022,15 @@ export class CalendarManager {
             // the instant fixed no matter who views it next.
             const tzid = GLib.TimeZone.new_local().get_identifier();
             const [ey, em2, ed2] = (endDate ?? date).split('-').map(Number);
+            if (![ey, em2, ed2].every(Number.isFinite))
+                throw new Error('Invalid date');
+            const validTime = (v, max) => Number.isFinite(v) && v >= 0 && v <= max;
+            if (!validTime(hour, 23) || !validTime(minute, 59) ||
+                !validTime(endHour, 23) || !validTime(endMinute, 59))
+                throw new Error('Invalid time');
+            if (!GLib.DateTime.new_local(y, m, d, hour, minute, 0) ||
+                !GLib.DateTime.new_local(ey, em2, ed2, endHour, endMinute, 0))
+                throw new Error('Invalid date or time');
             dtLines = [
                 `DTSTART;TZID=${tzid}:${y}${pad(m)}${pad(d)}T${pad(hour)}${pad(minute)}00`,
                 `DTEND;TZID=${tzid}:${ey}${pad(em2)}${pad(ed2)}T${pad(endHour)}${pad(endMinute)}00`,
@@ -820,10 +1040,10 @@ export class CalendarManager {
         return [
             'BEGIN:VEVENT',
             `UID:${uid}`,
-            `SUMMARY:${title}`,
+            `SUMMARY:${escText(title ?? '')}`,
             ...dtLines,
             ...notes    ? [`DESCRIPTION:${escText(notes)}`] : [],
-            ...url      ? [`URL:${url}`]                    : [],
+            ...url      ? [`URL:${url.replace(/[\r\n]+/g, '')}`] : [],
             ...location ? [`LOCATION:${escText(location)}`] : [],
             ...this._buildRRuleLine(recurrence),
             ...this._buildValarmLines(alarm),
@@ -840,7 +1060,13 @@ export class CalendarManager {
             return;
         }
 
-        const icalStr = this._buildICal(GLib.uuid_string_random(), fields);
+        let icalStr;
+        try {
+            icalStr = this._buildICal(GLib.uuid_string_random(), fields);
+        } catch (e) {
+            onDone?.(e);
+            return;
+        }
         const ical = ICalGLib.Component.new_from_string(icalStr);
         entry.client.create_object(ical, ECal.OperationFlags.NONE, this._cancellable, (_obj, res) => {
             try {
@@ -872,6 +1098,11 @@ export class CalendarManager {
             ICalGLib.PropertyKind.SUMMARY_PROPERTY,
             ICalGLib.PropertyKind.DTSTART_PROPERTY,
             ICalGLib.PropertyKind.DTEND_PROPERTY,
+            // RFC 5545 forbids DTEND and DURATION coexisting. The rebuilt
+            // component never carries DURATION, so listing it here only
+            // strips a stale one from an externally-created event - the
+            // new DTEND above then stands alone.
+            ICalGLib.PropertyKind.DURATION_PROPERTY,
             ICalGLib.PropertyKind.DESCRIPTION_PROPERTY,
             ICalGLib.PropertyKind.LOCATION_PROPERTY,
             ICalGLib.PropertyKind.URL_PROPERTY,
@@ -921,7 +1152,12 @@ export class CalendarManager {
                 return;
             }
 
-            this._applyFieldsToIcal(ical, fields);
+            try {
+                this._applyFieldsToIcal(ical, fields);
+            } catch (e) {
+                onDone?.(e);
+                return;
+            }
             entry.client.modify_object(ical, ECal.ObjModType.ALL, ECal.OperationFlags.NONE, this._cancellable, (_obj2, res2) => {
                 try {
                     entry.client.modify_object_finish(res2);
@@ -949,6 +1185,10 @@ export class CalendarManager {
         }
 
         const {scope = 'ALL', recurrenceId = null} = opts ?? {};
+        if ((scope === 'THIS' || scope === 'FUTURE') && !recurrenceId) {
+            onDone?.(new Error('Missing recurrence id'));
+            return;
+        }
         const modType = {
             ALL:    ECal.ObjModType.ALL,
             THIS:   ECal.ObjModType.THIS,
@@ -1002,6 +1242,7 @@ export class CalendarManager {
     // Cleanup
 
     destroy() {
+        this._destroyed = true;
         if (this._registryStartupPumpId) {
             GLib.source_remove(this._registryStartupPumpId);
             this._registryStartupPumpId = null;

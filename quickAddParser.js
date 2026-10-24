@@ -110,30 +110,57 @@ function extractTime(text, atWord) {
     // preposition and, later, a real location marker (e.g. "... at 3pm at
     // Downtown Clinic").
     const optAt = atWord ? `(?:${escapeRegExp(atWord)}\\s+)?` : '';
+    const rangePrefix = String.raw`(?:\d{1,2}\s*[-–]\s*)?`;
 
-    // "3:30pm", "15:30", "3:30" - colon form, am/pm optional.
-    let m = new RegExp(`\\b${optAt}(\\d{1,2}):(\\d{2})\\s*(am|pm)?\\b`, 'iu').exec(text);
-    if (m) {
-        const hour = m[3] ? to24h(parseInt(m[1], 10), m[3]) : parseInt(m[1], 10);
-        return {time: `${pad(hour)}:${pad(parseInt(m[2], 10))}`, rest: cut(text, m)};
+    // "3:30pm", "15:30", "3:30" - colon form, am/pm optional. Iterate
+    // every candidate (fresh global regex per call, so no lastIndex
+    // carry-over): an invalid one is skipped, not allowed to block a
+    // later valid time in the same text.
+    for (const m of text.matchAll(new RegExp(`\\b${optAt}${rangePrefix}(\\d{1,2})[.:](\\d{2})(?::(\\d{2}))?\\s*(am|pm)?\\b`, 'giu'))) {
+        const rawHour = parseInt(m[1], 10);
+        const minute  = parseInt(m[2], 10);
+        const second  = m[3] ? parseInt(m[3], 10) : null;
+        const valid   = minute <= 59 && (second === null || second <= 59) &&
+                        (m[4] ? rawHour >= 1 && rawHour <= 12 : rawHour <= 23);
+        if (valid) {
+            const hour = m[4] ? to24h(rawHour, m[4]) : rawHour;
+            return {time: `${pad(hour)}:${pad(minute)}`, rest: cut(text, m)};
+        }
+        // Invalid time (e.g. "99:99"): keep searching, then fall through.
     }
 
-    // "15h30", "15h" - pt_BR-style 24-hour shorthand.
-    m = new RegExp(`\\b${optAt}([01]?\\d|2[0-3])h(\\d{2})?\\b`, 'iu').exec(text);
-    if (m)
-        return {time: `${pad(parseInt(m[1], 10))}:${pad(m[2] ? parseInt(m[2], 10) : 0)}`, rest: cut(text, m)};
+    // "15h30", "15h" - pt_BR-style 24-hour shorthand. Same
+    // iterate-and-skip-invalid rule as the colon form above: invalid
+    // minutes (e.g. "12h60") don't block a later valid time.
+    for (const cand of text.matchAll(new RegExp(`\\b${optAt}([01]?\\d|2[0-3])h(\\d{2})?\\b`, 'giu'))) {
+        const minute = cand[2] ? parseInt(cand[2], 10) : 0;
+        if (minute <= 59)
+            return {time: `${pad(parseInt(cand[1], 10))}:${pad(minute)}`, rest: cut(text, cand)};
+    }
 
-    // "3pm", "3 pm" - am/pm makes a bare number unambiguous.
-    m = new RegExp(`\\b${optAt}(\\d{1,2})\\s*(am|pm)\\b`, 'iu').exec(text);
-    if (m)
-        return {time: `${pad(to24h(parseInt(m[1], 10), m[2]))}:00`, rest: cut(text, m)};
+    // "3pm", "3 pm" - am/pm makes a bare number unambiguous. Same
+    // iterate-and-skip-invalid rule as the colon form above.
+    for (const cand of text.matchAll(new RegExp(`\\b${optAt}${rangePrefix}(\\d{1,2})\\s*(am|pm)\\b`, 'giu'))) {
+        const rawHour = parseInt(cand[1], 10);
+        if (rawHour >= 1 && rawHour <= 12)
+            return {time: `${pad(to24h(rawHour, cand[2]))}:00`, rest: cut(text, cand)};
+    }
 
     // "<at> 3" - a bare hour is only safe to read right after the
     // (translatable) time-preposition keyword.
     if (atWord) {
-        m = new RegExp(`\\b${escapeRegExp(atWord)}\\s+(\\d{1,2})\\b`, 'iu').exec(text);
-        if (m)
-            return {time: `${pad(parseInt(m[1], 10) % 24)}:00`, rest: cut(text, m)};
+        // Negative lookaheads: a number followed by ':'/'-' is the
+        // (invalid) hour of a colon time (e.g. "13:30pm") or part of a
+        // name (e.g. "7-Eleven"), and one followed by '.'+digit is a
+        // decimal (e.g. "8.30"), not a bare hour - don't fabricate
+        // "13:00"/"07:00"/"08:00" out of them. A '.' with no digit after
+        // it (end of sentence, "at 3.") still counts as a bare hour.
+        const m = new RegExp(`\\b${escapeRegExp(atWord)}\\s+(\\d{1,2})(?!\\s*[:\\-])(?!\\.\\d)\\b`, 'iu').exec(text);
+        if (m) {
+            const rawHour = parseInt(m[1], 10);
+            if (rawHour <= 23)
+                return {time: `${pad(rawHour)}:00`, rest: cut(text, m)};
+        }
     }
 
     return null;
@@ -154,7 +181,18 @@ function extractLocation(text, locationWord) {
     const m = re.exec(text);
     if (!m || !m[2].trim())
         return null;
-    return {location: m[2].trim(), rest: text.slice(0, m.index).trim()};
+    const location = m[2].trim();
+    // A bare number / time-like token ("at 99", "at 99:99", "at 13pm",
+    // "at 23h60", "at 9.30am") is a failed time, not a place; digit-led text
+    // ("221B Baker St") still counts. Trailing punctuation (and a leftover
+    // '-' from a range like "5-6pm") is stripped only for this test
+    // ("at 13pm!" is still a failed time), so a real place like
+    // "Cafe Nero!" - not time-like once stripped - is kept, punctuation
+    // and all, below.
+    const timeLike = location.replace(/[!?.,()-]+$/, '');
+    if (/^(?:\d+|\d+:\d{2}(?::\d{2})?\s*(?:am|pm)?|\d+\.\d+\s*(?:am|pm)?|\d+\s*(?:am|pm)|\d+h\d{0,2}\s*(?:am|pm)?)$/iu.test(timeLike))
+        return null;
+    return {location, rest: text.slice(0, m.index).trim()};
 }
 
 // Parses a quick-add one-liner into a draft for EventPanel: whatever's

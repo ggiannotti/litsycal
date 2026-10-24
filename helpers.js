@@ -20,13 +20,18 @@ export function capitalize(s) {
  * @param {string} pattern
  */
 export function formatPattern(dt, pattern) {
-    let p = pattern;
+    // Shield escaped %% (a literal percent for dt.format) behind a
+    // placeholder first: otherwise the token pass below corrupts e.g.
+    // '%%A' (literal "%A") into '%' + the capitalized weekday name.
+    // Restored to %% before formatting, so dt.format still emits '%'.
+    const ESCAPED_PERCENT = '\uE000';
+    let p = pattern.split('%%').join(ESCAPED_PERCENT);
     for (const token of ['%A', '%B', '%a', '%b']) {
         const val = dt.format(token);
         if (val)
             p = p.split(token).join(capitalize(val));
     }
-    return dt.format(p) ?? '';
+    return dt.format(p.split(ESCAPED_PERCENT).join('%%')) ?? '';
 }
 
 /**
@@ -109,15 +114,21 @@ export function daysInMonth(year, month) {
     return GLib.DateTime.new_local(ny, nm, 1, 0, 0, 0).add_days(-1).get_day_of_month();
 }
 
-// Whole calendar days between two GLib.DateTime instants (b - a), independent
-// of any DST shift that falls between them: rounding to the nearest day
-// absorbs the up-to-+/-1h wall-clock drift a single transition introduces.
+// Whole calendar days between two GLib.DateTime values (b - a), counting
+// calendar dates rather than elapsed time: both are re-anchored to their
+// own Y/M/D at UTC midnight, so time-of-day and any DST shift between them
+// can't push the result off by one (the sole caller, _showDayInfo's "#"
+// day-offset display, compares a possibly non-midnight "today" against a
+// midnight selection - an instant difference would read 0 for "tomorrow"
+// picked late in the evening).
 /**
  * @param {GLib.DateTime} a
  * @param {GLib.DateTime} b
  */
 export function daysBetween(a, b) {
-    return Math.round(b.difference(a) / (24 * 60 * 60 * 1000000));
+    const start = GLib.DateTime.new_utc(a.get_year(), a.get_month(), a.get_day_of_month(), 0, 0, 0);
+    const end   = GLib.DateTime.new_utc(b.get_year(), b.get_month(), b.get_day_of_month(), 0, 0, 0);
+    return Math.round(end.difference(start) / (24 * 60 * 60 * 1000000));
 }
 
 /**
@@ -218,12 +229,36 @@ export function eventTimeRange(ev) {
     const [y, m, d] = ev.date.split('-').map(Number);
     const [startStr, endStr] = ev.time.split(' - ');
     const [sh, sm] = startStr.split(':').map(Number);
+    const validTime = (h, min) => Number.isFinite(h) && Number.isFinite(min) &&
+        h >= 0 && h <= 23 && min >= 0 && min <= 59;
+    if (![y, m, d].every(Number.isFinite) || !validTime(sh, sm))
+        return null;
     const start = GLib.DateTime.new_local(y, m, d, sh, sm, 0);
+    if (!start)
+        return null;
     let end;
     if (endStr) {
         const [eh, em] = endStr.trim().split(':').map(Number);
-        end = GLib.DateTime.new_local(y, m, d, eh, em, 0);
-        if (end.compare(start) < 0)
+        if (!validTime(eh, em))
+            return null;
+        // A multi-day event's end time belongs to its endDate, not its
+        // start day - otherwise it reads as already ended from day two on.
+        let endY = y, endM = m, endD = d;
+        const hasEndDate = !!ev.endDate && ev.endDate !== ev.date;
+        if (hasEndDate) {
+            const [ey, emo, ed] = ev.endDate.split('-').map(Number);
+            if (![ey, emo, ed].every(Number.isFinite))
+                return null;
+            endY = ey;
+            endM = emo;
+            endD = ed;
+        }
+        end = GLib.DateTime.new_local(endY, endM, endD, eh, em, 0);
+        if (!end)
+            return null;
+        // With an explicit endDate the end is already on the right day (a
+        // 00:00 end there is that midnight, not the next one).
+        if (!hasEndDate && end.compare(start) < 0)
             end = end.add_days(1); // crosses midnight
     } else {
         end = start.add_hours(1);
@@ -252,11 +287,21 @@ export function meetingIsJoinable(ev) {
  * @param {object} ev
  */
 export function formatEventWhen(ev) {
-    const [y, m, d] = ev.date.split('-').map(Number);
-    let when = capitalize(GLib.DateTime.new_local(y, m, d, 0, 0, 0).format('%A, %B %-d, %Y'));
+    const [y, m, d] = (ev.date ?? '').split('-').map(Number);
+    if (![y, m, d].every(Number.isFinite))
+        return ev.date || _('Invalid date');
+    const startDt = GLib.DateTime.new_local(y, m, d, 0, 0, 0);
+    if (!startDt)
+        return ev.date || _('Invalid date');
+    let when = capitalize(startDt.format('%A, %B %-d, %Y'));
     if (ev.endDate && ev.endDate !== ev.date) {
         const [ey, em, ed] = ev.endDate.split('-').map(Number);
-        when += ` – ${capitalize(GLib.DateTime.new_local(ey, em, ed, 0, 0, 0).format('%A, %B %-d, %Y'))}`;
+        if (![ey, em, ed].every(Number.isFinite))
+            return ev.date;
+        const endDt = GLib.DateTime.new_local(ey, em, ed, 0, 0, 0);
+        if (!endDt)
+            return ev.date;
+        when += ` – ${capitalize(endDt.format('%A, %B %-d, %Y'))}`;
     }
     when += `, ${ev.time ?? _('All day')}`;
     return when;

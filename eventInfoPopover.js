@@ -46,6 +46,7 @@ export class EventInfoPopover {
         this._event         = ev;
         this._onClose       = onClose;
         this._onOutsideClick = onOutsideClick;
+        this._closed        = false;
 
         this._root = new St.Widget();
         Main.layoutManager.uiGroup.add_child(this._root);
@@ -80,6 +81,22 @@ export class EventInfoPopover {
         this._root.add_child(this._box);
 
         this._build();
+
+        if (this._linkBtns.length > 0) {
+            const focusCycle = [this._deleteBtn, ...this._linkBtns];
+            focusCycle.forEach((b, i) => {
+                b.connectObject('key-press-event', (_actor, keyEvent) => {
+                    const sym = keyEvent.get_key_symbol();
+                    if (sym !== Clutter.KEY_Tab && sym !== Clutter.KEY_ISO_Left_Tab)
+                        return Clutter.EVENT_PROPAGATE;
+                    const forward = sym === Clutter.KEY_Tab &&
+                        (keyEvent.get_state() & Clutter.ModifierType.SHIFT_MASK) === 0;
+                    const next = (i + (forward ? 1 : -1) + focusCycle.length) % focusCycle.length;
+                    focusCycle[next].grab_key_focus();
+                    return Clutter.EVENT_STOP;
+                }, this);
+            });
+        }
 
         // See SettingsMenuPanel's own this._grab comment for why this needs
         // a competing grab of its own rather than relying on the calendar
@@ -166,6 +183,7 @@ export class EventInfoPopover {
     }
 
     _build() {
+        this._linkBtns = [];
         const ev  = this._event;
         const box = this._box;
 
@@ -291,6 +309,7 @@ export class EventInfoPopover {
                     Gio.AppInfo.launch_default_for_uri(uri, null);
                 } catch {} // no app handles this URI scheme; nothing to fall back to
             }, this);
+            this._linkBtns.push(btn);
             box.add_child(btn);
         };
 
@@ -399,6 +418,9 @@ export class EventInfoPopover {
     }
 
     close() {
+        if (this._closed)
+            return;
+        this._closed = true;
         if (this._positionIdleId) {
             GLib.source_remove(this._positionIdleId);
             this._positionIdleId = null;
@@ -407,9 +429,13 @@ export class EventInfoPopover {
             this._closeConfirmOverlay();
         if (this._root) {
             this._deleteBtn.disconnectObject(this);
+            for (const b of this._linkBtns ?? [])
+                b.disconnectObject(this);
             this._backdrop.disconnectObject(this);
-            Main.popModal(this._grab);
-            this._grab = null;
+            if (this._grab) {
+                Main.popModal(this._grab);
+                this._grab = null;
+            }
             Main.layoutManager.uiGroup.remove_child(this._root);
             this._root.destroy();
             this._root = null;

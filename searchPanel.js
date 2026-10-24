@@ -44,6 +44,7 @@ export class SearchPanel extends FloatingModalPanel {
         this._calManager  = calManager;
         this._debounceId  = null;
         this._lastResults = [];
+        this._resultBtns  = [];
         // Guards the UI against a slow query's results landing after a
         // newer one already has - CalendarManager.searchEvents() has its
         // own such guard for query results, but debounced calls here race
@@ -66,6 +67,13 @@ export class SearchPanel extends FloatingModalPanel {
         this._entry.clutter_text.connectObject('activate', () => {
             if (this._lastResults.length > 0)
                 this._finish(this._lastResults[0]);
+        }, this);
+        this._entry.clutter_text.connectObject('key-press-event', (_actor, event) => {
+            if (event.get_key_symbol() === Clutter.KEY_Down && this._resultBtns.length > 0) {
+                this._resultBtns[0].grab_key_focus();
+                return Clutter.EVENT_STOP;
+            }
+            return Clutter.EVENT_PROPAGATE;
         }, this);
         box.add_child(this._entry);
 
@@ -113,6 +121,7 @@ export class SearchPanel extends FloatingModalPanel {
 
     _showResults(results) {
         this._lastResults = results;
+        this._resultBtns = [];
         this._resultsBox.destroy_all_children();
         this._emptyLbl.visible = results.length === 0 && this._entry.get_text().trim().length > 0;
 
@@ -139,6 +148,20 @@ export class SearchPanel extends FloatingModalPanel {
 
             btn.set_child(row);
             btn.connectObject('clicked', () => this._finish(ev), this);
+            btn.connectObject('key-press-event', (_actor, event) => {
+                const sym = event.get_key_symbol();
+                if (sym !== Clutter.KEY_Down && sym !== Clutter.KEY_Up)
+                    return Clutter.EVENT_PROPAGATE;
+                const i = this._resultBtns.indexOf(btn);
+                if (sym === Clutter.KEY_Up && i === 0) {
+                    this._entry.grab_key_focus();
+                    return Clutter.EVENT_STOP;
+                }
+                const next = (i + (sym === Clutter.KEY_Down ? 1 : -1) + this._resultBtns.length) % this._resultBtns.length;
+                this._resultBtns[next].grab_key_focus();
+                return Clutter.EVENT_STOP;
+            }, this);
+            this._resultBtns.push(btn);
             this._resultsBox.add_child(btn);
         }
         this._position();

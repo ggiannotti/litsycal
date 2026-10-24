@@ -25,6 +25,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 export class FloatingModalPanel {
     constructor(styleClass, defaultWidth, defaultHeight, anchorActor, onClose) {
         this._onClose       = onClose;
+        this._finished      = false;
         this._anchor        = anchorActor;
         this._defaultWidth  = defaultWidth;
         this._defaultHeight = defaultHeight;
@@ -116,6 +117,9 @@ export class FloatingModalPanel {
     }
 
     _finish(result) {
+        if (this._finished)
+            return;
+        this._finished = true;
         if (this._positionIdleId) {
             GLib.source_remove(this._positionIdleId);
             this._positionIdleId = null;

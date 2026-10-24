@@ -118,7 +118,16 @@ function alertLabel(value, allDay) {
  * @param {Function} [onOverlayChange]
  */
 export function confirmDeleteEvent(calManager, event, onDone, onOverlayChange) {
+    // Anti double-click: a second activation landing before the overlay's
+    // teardown must not issue a second deleteEvent for the same event.
+    let deleteStarted = false;
     const doDelete = scope => {
+        if (deleteStarted)
+            return;
+        deleteStarted = true;
+        // (Buttons aren't disabled here: mkBtn already closed/destroyed
+        // the overlay before invoking this, so touching them would reach
+        // disposed actors - the flag alone is the safe guard.)
         const recurrenceId = event.recurrenceId ?? null;
         calManager.deleteEvent(event.uid, event.clientUid, {scope, recurrenceId}, err => onDone?.(err));
     };
@@ -1645,6 +1654,10 @@ export class EventPanel {
         const url = this._urlEntry.get_text().trim();
         if (!url)
             return;
+        if (!isLikelyUrl(url)) {
+            this._showError(_('URL must include a scheme, e.g. https://'));
+            return;
+        }
         try {
             Gio.AppInfo.launch_default_for_uri(url, null);
         } catch {} // no app handles this URI scheme; nothing to fall back to
@@ -1676,7 +1689,14 @@ export class EventPanel {
         const until  = this._repeatEndPicker.getValue() === 'ON_DATE'
             ? this._parseDate(this._repeatUntilPicker.getValue())
             : null;
-        return {freq: preset.freq, interval: preset.interval, until};
+        // The picker only edits UNTIL's date; carry the time-of-day the
+        // source rule had (see _parseRecurrence's untilTime) over to the
+        // possibly-new date instead of resetting it to end-of-day.
+        const untilTime = until ? this._event?.recurrence?.untilTime : null;
+        const rec = {freq: preset.freq, interval: preset.interval, until};
+        if (untilTime)
+            rec.untilTime = untilTime;
+        return rec;
     }
 
     _alarmFromUI() {
@@ -1718,6 +1738,12 @@ export class EventPanel {
             minute = st % 60;
             endHour = Math.floor(et / 60);
             endMinute = et % 60;
+            endDate = this._parseDate(this._endDatePicker.getValue()) ?? startDate;
+        } else {
+            // All-day: the end *date* picker stays visible (only its time
+            // field is hidden, see _updateTimeVisibility), and a multi-day
+            // all-day event's span lives in it - dropping it here truncated
+            // every edited all-day event back to a single day.
             endDate = this._parseDate(this._endDatePicker.getValue()) ?? startDate;
         }
 
