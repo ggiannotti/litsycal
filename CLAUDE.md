@@ -1,3 +1,4 @@
+> Maintainer's local notes - contributors should follow CONTRIBUTING.md instead.
 # Litsycal dev notes
 
 ## Pre-push checks (`node`/`npm` aren't installed system-wide here)

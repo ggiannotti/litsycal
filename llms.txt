@@ -1,0 +1,54 @@
+# Litsycal
+
+> A compact calendar indicator for the GNOME panel (Shell 48-50), a Linux port of Itsycal for macOS. Clicking the panel badge opens a small monthly calendar with an agenda backed by Evolution Data Server, event create/edit/search, time-zone clocks, and a GTK preferences window. Written in plain GJS (ES modules), no build step; MIT licensed.
+
+Litsycal runs in two processes that must never mix libraries: the GNOME Shell process (St/Clutter/Meta) hosts the extension, and a separate GTK process (Gtk/Gdk/Adw) hosts preferences. Calendar data comes from Evolution Data Server, whose typelibs are optional and loaded lazily so the extension still opens without them.
+
+## Docs
+
+- [README](https://github.com/mlkonrad/litsycal/blob/main/README.md): What Litsycal does, keyboard shortcuts, and installation (extensions.gnome.org or from source).
+- [CONTRIBUTING](https://github.com/mlkonrad/litsycal/blob/main/CONTRIBUTING.md): Prerequisites, dev setup, the checks to run, and the conventions review actually enforces.
+- [CHANGELOG](https://github.com/mlkonrad/litsycal/blob/main/CHANGELOG.md): Release-by-release history in Keep a Changelog format; new work goes under [Unreleased].
+- [SECURITY](https://github.com/mlkonrad/litsycal/blob/main/SECURITY.md): How to report a vulnerability privately via GitHub Security Advisories, and what is in scope.
+- [metadata.json](https://github.com/mlkonrad/litsycal/blob/main/metadata.json): Extension uuid, supported Shell versions (48-50), settings-schema and gettext domain. No version key; extensions.gnome.org assigns it.
+
+## Modules
+
+- [extension.js](https://github.com/mlkonrad/litsycal/blob/main/extension.js): Entry point; enable()/disable() only create and tear down the panel indicator.
+- [indicator.js](https://github.com/mlkonrad/litsycal/blob/main/indicator.js): Panel button, date badge and meeting countdown; owns the calendar widget and popup menu.
+- [calendarWidget.js](https://github.com/mlkonrad/litsycal/blob/main/calendarWidget.js): The monthly grid, agenda, time-zone clocks and in-calendar keyboard handling.
+- [calendarManager.js](https://github.com/mlkonrad/litsycal/blob/main/calendarManager.js): All Evolution Data Server access: lazy typelib loading, live views, iCal parse/build, per-date event index, datesSpanned() and search.
+- [eventDialog.js](https://github.com/mlkonrad/litsycal/blob/main/eventDialog.js): The create/edit event panel, shared delete confirmation, and the go-to-date and quick-add panels.
+- [eventInfoPopover.js](https://github.com/mlkonrad/litsycal/blob/main/eventInfoPopover.js): Read-only popover with one event's details, attendees and join link.
+- [floatingPanel.js](https://github.com/mlkonrad/litsycal/blob/main/floatingPanel.js): Base class for the floating modal panels: positioning, input grab and teardown.
+- [searchPanel.js](https://github.com/mlkonrad/litsycal/blob/main/searchPanel.js): Ctrl+F panel searching every connected calendar around the selected date.
+- [settingsMenuPanel.js](https://github.com/mlkonrad/litsycal/blob/main/settingsMenuPanel.js): The gear / right-click settings menu (About, Go to date, Settings, Appearance, Quit).
+- [outlinePainter.js](https://github.com/mlkonrad/litsycal/blob/main/outlinePainter.js): Cairo drawing of the month outline and column/day highlights behind the grid.
+- [helpers.js](https://github.com/mlkonrad/litsycal/blob/main/helpers.js): Shared Shell-process helpers: dates, pattern formatting, URL/meeting detection, time-zone rows. Shell-only; prefs.js must not import it.
+- [quickAddParser.js](https://github.com/mlkonrad/litsycal/blob/main/quickAddParser.js): Pure parser turning a one-liner ("Lunch tomorrow 12pm at Cafe Nero") into a draft event. Shell-independent and unit-tested.
+- [timeInput.js](https://github.com/mlkonrad/litsycal/blob/main/timeInput.js): Pure time-of-day parsing/formatting (minutes since midnight, "HH:MM"). Shell-independent and unit-tested.
+- [prefs.js](https://github.com/mlkonrad/litsycal/blob/main/prefs.js): The Adwaita preferences window (General / Appearance / About). GTK process only; never imports St/Clutter.
+- [stylesheet.css](https://github.com/mlkonrad/litsycal/blob/main/stylesheet.css): All St styling: themes, size/font variants, badge styles, panels and popovers.
+- [GSettings schema](https://github.com/mlkonrad/litsycal/blob/main/schemas/org.gnome.shell.extensions.litsycal.gschema.xml): Every preference key under org.gnome.shell.extensions.litsycal.
+
+## Build and test
+
+- Install dev dependencies: `npm ci` (ESLint only; there is no build or bundle step).
+- Lint: `npm run lint`
+- Unit tests: `npm test` (runs `gjs -m tests/test-quickadd-time.js`, pure-gjs checks for quickAddParser.js and timeInput.js)
+- Everything CI runs: `./scripts/check.sh` (schema compile dry-run, lint, tests, JS syntax check via gjs Reflect.parse, msgfmt validation of po/*.po and the POT). The pre-push hook in .githooks/ calls it; enable with `git config core.hooksPath .githooks`.
+- Compile schemas after editing them: `glib-compile-schemas schemas/`
+- Fast iteration without logging out: `./scripts/dev-session.sh` (nested mutter-devkit Shell; it has its own D-Bus bus and therefore its own Evolution Data Server, so calendar changes from the real session do not appear live in it).
+
+## Constraints
+
+- Processes: Shell files import St/Clutter/Meta and never Gtk/Gdk/Adw; prefs.js is the reverse. Shared-by-both code must import none of them (currently prefs keeps its own copies for this reason).
+- Optional typelibs (EDataServer/ECal/ICalGLib, location services) are loaded lazily with await import() inside try; a static import would break the extension on systems without them.
+- Signals in Shell-process code use connectObject()/disconnectObject(owner), never bare connect(); nothing is created at module scope, and enable()/disable() teardown removes sources, then signals, then resources.
+- Only the pure modules (quickAddParser.js, timeInput.js) are unit-testable under plain gjs; tests live in tests/ and run without a Shell.
+- User-visible strings go through _()/ngettext(); code comments stay plain ASCII and explain why, not what.
+- Translations are validated with msgfmt --check in scripts/check.sh; regenerate the POT with `npm run pot` (see CONTRIBUTING.md).
+
+## Optional
+
+- [AGENTS.md](https://github.com/mlkonrad/litsycal/blob/main/AGENTS.md): Short project map for coding agents (the lower half is auto-generated codebase intelligence; do not edit between its markers).

@@ -19,6 +19,31 @@ longer carries a `version` key — see that file's history for why).
   countdown still replaces the logo, or sits next to it in "Show alongside
   icon text" mode.
 
+### Fixed
+
+- Litsycal now opens on systems without Evolution Data Server installed
+  (#10). It used to fail to load at all there; the calendar libraries are
+  now loaded only when needed, so without them you get the grid and the
+  time-zone clocks, just no calendars or events.
+- Editing a multi-day all-day event no longer cuts it back to a single
+  day, and multi-day all-day events read from a calendar now show on
+  every day they cover rather than only the first.
+- A reminder set to go off after an event starts (some calendars send
+  those) is no longer saved back with the wrong sign and turned into a
+  reminder before the start.
+- Editing a repeating event no longer moves its end date's cut-off time:
+  a rule that ended at a specific time of day keeps that time instead of
+  being reset to the end of the day.
+- Events saved by Litsycal no longer carry both an end time and a
+  duration, which the calendar format forbids — the stray duration that
+  could confuse other calendar apps is gone.
+- An event that ends exactly at midnight no longer claims that last day
+  in the grid and agenda, and a broken event whose end falls before its
+  start can't paint itself across the calendar.
+- The quick-add and time parsers gained a proper test suite (71 checks in
+  `tests/`), which caught several bad inputs — "99:99", "13pm", a range
+  like "3-4pm" — being read as times they were never meant to be.
+
 ## [8] - 2026-09-27
 
 ### Added

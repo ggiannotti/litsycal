@@ -14,8 +14,11 @@ glib-compile-schemas schemas/ --strict --dry-run
 echo "== ESLint (GNOME Shell ruleset) =="
 npm run lint
 
+echo "== Unit tests (pure gjs modules) =="
+npm test
+
 echo "== Syntax-check JS =="
-cat > /tmp/litsycal-check-syntax.js <<'EOF'
+cat >/tmp/litsycal-check-syntax.js <<'EOF'
 const fname = ARGV[0];
 const [, bytes] = imports.gi.GLib.file_get_contents(fname);
 const text = imports.byteArray.toString(bytes);
@@ -27,13 +30,13 @@ try {
 }
 EOF
 for f in *.js; do
-    gjs /tmp/litsycal-check-syntax.js "$f"
+	gjs /tmp/litsycal-check-syntax.js "$f"
 done
 rm -f /tmp/litsycal-check-syntax.js
 
 echo "== Validate translations =="
 for po in po/*.po; do
-    msgfmt --check "$po" -o /dev/null
+	msgfmt --check "$po" -o /dev/null
 done
 
 echo "== Validate POT =="

@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "gjs -m tests/test-quickadd-time.js",
+    "pot": "xgettext --language=JavaScript --keyword=_:1 --keyword=ngettext:1,2 --keyword=pgettext:1c,2 --from-code=UTF-8 --package-name=Litsycal --copyright-holder='Marlon Konrad' -o po/litsycal@mlkonrad.github.com.pot *.js"
   },
   "devDependencies": {
     "eslint": "^9.28.0",
