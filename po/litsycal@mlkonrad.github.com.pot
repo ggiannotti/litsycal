@@ -667,6 +667,26 @@ msgstr ""
 msgid "Icon style"
 msgstr ""
 
+#: prefs.js:544
+msgid "Calendar band colour"
+msgstr ""
+
+#: prefs.js:545
+msgid "The strip across the top of the calendar icon styles"
+msgstr ""
+
+#: prefs.js:542
+msgid "Accent colour"
+msgstr ""
+
+#: prefs.js:542
+msgid "Accent colour, lighter"
+msgstr ""
+
+#: prefs.js:542
+msgid "Accent colour, darker"
+msgstr ""
+
 #: prefs.js:525
 msgid "Show month in icon"
 msgstr ""

@@ -90,6 +90,7 @@ class LitsycalIndicator extends PanelMenu.Button {
             'badge-style', 'show-month-in-badge', 'show-dow-in-badge',
             'hide-icon', 'datetime-pattern', 'show-time', 'time-format',
             'show-countdown-in-badge', 'countdown-badge-mode',
+            'calendar-band-color-mode', 'calendar-band-color',
         ])
             settings.connectObject(`changed::${k}`, () => this._updateBadge(), this);
 
@@ -313,9 +314,13 @@ class LitsycalIndicator extends PanelMenu.Button {
         const style   = this._settings.get_string('badge-style');
         const pattern = this._settings.get_string('datetime-pattern');
 
+        const isCalendar = style === 'calendar' || style === 'calendar-dark';
+        const band = isCalendar ? `box-shadow: inset 0 2px 0 0 ${this._calendarBandColor()};` : null;
+
         // Same style modifiers on both the badge and the countdown box, so
         // whichever is visible (or both, in "append" mode) always match.
         for (const el of [this._badge, this._countdownBox]) {
+            el.style = band;
             el.remove_style_class_name('litsycal-badge-dark');
             el.remove_style_class_name('litsycal-badge-calendar');
             el.remove_style_class_name('litsycal-badge-calendar-dark');
@@ -359,6 +364,22 @@ class LitsycalIndicator extends PanelMenu.Button {
             this._countdownBox.add_style_class_name('litsycal-countdown-box-spaced');
         } else {
             this._countdownBox.remove_style_class_name('litsycal-countdown-box-spaced');
+        }
+    }
+
+    // The calendar styles' top band, overriding the red in stylesheet.css.
+    // The accent modes stay live CSS expressions rather than a colour read
+    // once here, so St re-resolves them when the system accent changes.
+    _calendarBandColor() {
+        switch (this._settings.get_string('calendar-band-color-mode')) {
+        case 'accent':
+            return '-st-accent-color';
+        case 'accent-lighter':
+            return 'st-lighten(-st-accent-color, 20%)';
+        case 'accent-darker':
+            return 'st-darken(-st-accent-color, 20%)';
+        default:
+            return this._settings.get_string('calendar-band-color');
         }
     }
 

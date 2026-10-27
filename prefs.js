@@ -538,6 +538,52 @@ export default class LitsycalPrefs extends ExtensionPreferences {
         });
         iconGroup.add(styleRow);
 
+        const BAND_IDS    = ['custom', 'accent', 'accent-lighter', 'accent-darker'];
+        const BAND_LABELS = [_('Custom colour'), _('Accent colour'), _('Accent colour, lighter'), _('Accent colour, darker')];
+        const bandModeRow = new Adw.ComboRow({
+            title:    _('Calendar band colour'),
+            subtitle: _('The strip across the top of the calendar icon styles'),
+            model:    Gtk.StringList.new(BAND_LABELS),
+        });
+        bandModeRow.set_selected(Math.max(0, BAND_IDS.indexOf(settings.get_string('calendar-band-color-mode'))));
+
+        const bandColorRow = new Adw.ActionRow({
+            title:   _('Custom colour'),
+            visible: settings.get_string('calendar-band-color-mode') === 'custom',
+        });
+        const bandColorBtn = new Gtk.ColorDialogButton({
+            dialog: new Gtk.ColorDialog({modal: true}), valign: Gtk.Align.CENTER,
+        });
+        const bandRgba = new Gdk.RGBA();
+        bandRgba.parse(settings.get_string('calendar-band-color'));
+        bandColorBtn.set_rgba(bandRgba);
+        bandColorBtn.connect('notify::rgba', () => {
+            const c = bandColorBtn.get_rgba();
+            const h = v => Math.round(v * 255).toString(16).padStart(2, '0');
+            settings.set_string('calendar-band-color', `#${h(c.red)}${h(c.green)}${h(c.blue)}`);
+        });
+        bandColorRow.add_suffix(bandColorBtn);
+
+        bandModeRow.connect('notify::selected', () => {
+            const i = bandModeRow.get_selected();
+            if (i < BAND_IDS.length) {
+                settings.set_string('calendar-band-color-mode', BAND_IDS[i]);
+                bandColorRow.visible = BAND_IDS[i] === 'custom';
+            }
+        });
+        iconGroup.add(bandModeRow);
+        iconGroup.add(bandColorRow);
+
+        // Only the two calendar styles have a band to colour.
+        const updateBandRows = () => {
+            const style = settings.get_string('badge-style');
+            const calendar = style === 'calendar' || style === 'calendar-dark';
+            bandModeRow.set_sensitive(calendar);
+            bandColorRow.set_sensitive(calendar);
+        };
+        updateBandRows();
+        settingsHandlerIds.push(settings.connect('changed::badge-style', updateBandRows));
+
         const showMonthRow = new Adw.SwitchRow({title: _('Show month in icon')});
         settings.bind('show-month-in-badge', showMonthRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         iconGroup.add(showMonthRow);

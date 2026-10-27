@@ -90,6 +90,21 @@
       <summary>Panel badge style</summary>
       <description>One of: number-light, number-dark, calendar, calendar-dark, text, logo</description>
     </key>
+    <key name="calendar-band-color-mode" type="s">
+      <choices>
+        <choice value="custom"/>
+        <choice value="accent"/>
+        <choice value="accent-lighter"/>
+        <choice value="accent-darker"/>
+      </choices>
+      <default>'custom'</default>
+      <summary>Colour of the top band on the calendar badge styles</summary>
+      <description>custom uses calendar-band-color; the accent modes follow the system accent colour</description>
+    </key>
+    <key name="calendar-band-color" type="s">
+      <default>'#e0443e'</default>
+      <summary>Custom calendar badge band colour (hex)</summary>
+    </key>
     <key name="show-month-in-badge" type="b">
       <default>false</default>
       <summary>Show abbreviated month in the badge</summary>

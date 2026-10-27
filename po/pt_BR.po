@@ -670,6 +670,26 @@ msgstr "Logo do Litsycal"
 msgid "Icon style"
 msgstr "Estilo do ícone"
 
+#: prefs.js:544
+msgid "Calendar band colour"
+msgstr "Cor da faixa do calendário"
+
+#: prefs.js:545
+msgid "The strip across the top of the calendar icon styles"
+msgstr "A faixa no topo dos estilos de ícone de calendário"
+
+#: prefs.js:542
+msgid "Accent colour"
+msgstr "Cor de destaque"
+
+#: prefs.js:542
+msgid "Accent colour, lighter"
+msgstr "Cor de destaque, mais clara"
+
+#: prefs.js:542
+msgid "Accent colour, darker"
+msgstr "Cor de destaque, mais escura"
+
 #: prefs.js:525
 msgid "Show month in icon"
 msgstr "Mostrar mês no ícone"

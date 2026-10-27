@@ -23,6 +23,11 @@ longer carries a `version` key — see that file's history for why).
   results, and Enter opens the highlighted one. In an event's popover, Tab
   and Shift+Tab move through the delete button and the event's links, and
   Esc now closes the popover whichever of them is focused.
+- A colour choice for the band across the top of the calendar icon styles
+  (Preferences > Appearance > Calendar band colour): a custom colour (red,
+  as before, by default) or your system accent colour, as is or a little
+  lighter or darker. The accent options follow the accent colour when you
+  change it in GNOME Settings. The band is also a little thinner now.
 
 ### Fixed
 
