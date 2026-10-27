@@ -420,36 +420,65 @@ class LitsycalIndicator extends PanelMenu.Button {
         const msToNextMinute = 60000 - Math.floor(GLib.get_real_time() / 1000) % 60000 + 50;
         if (this._timer)
             GLib.source_remove(this._timer);
-        this._timer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, msToNextMinute, () => {
-            this._timer = null;
-            this._updateBadge();
-            this._checkHourlyBeep();
-            // Keep the meeting join-button window (15 min before -> end) and
-            // the time zone clocks fresh while the calendar is actually
-            // visible.
-            if (this._menuIsOpen || this._pinned) {
-                this._calWidget._buildAgenda();
-                this._calWidget._updateTimeZones();
+        const id = GLib.timeout_add(GLib.PRIORITY_DEFAULT, msToNextMinute, () => {
+            try {
+                this._updateBadge();
+                this._checkHourlyBeep();
+                // Keep the meeting join-button window (15 min before -> end) and
+                // the time zone clocks fresh while the calendar is actually
+                // visible.
+                if (this._menuIsOpen || this._pinned) {
+                    this._calWidget._buildAgenda();
+                    this._calWidget._updateTimeZones();
+                }
+            } finally {
+                // Re-arm even if the tick above throws, but only while this
+                // callback is still the registered timer. destroy() clears
+                // this._timer (a re-entrant destroy during the tick above
+                // included), so a dead indicator is never resurrected; a
+                // newer timer armed meanwhile has a different id and is
+                // likewise left alone.
+                if (this._timer === id) {
+                    this._timer = null;
+                    this._scheduleMinuteTick();
+                }
             }
-            this._scheduleMinuteTick();
             return GLib.SOURCE_REMOVE;
         });
+        this._timer = id;
     }
 
     _checkHourlyBeep() {
-        const now = GLib.DateTime.new_now_local();
-        const h   = now.get_hour();
-        if (h !== this._lastHour) {
-            this._lastHour = h;
-            if (this._settings.get_boolean('beep-on-hour')) {
-                const customFile = this._settings.get_string('hour-sound-file');
-                const player = global.display.get_sound_player();
-                if (customFile)
-                    player.play_from_file(Gio.File.new_for_path(customFile), 'Hour bell', null);
-                else
-                    player.play_from_theme('bell', 'Hour bell', null);
+        // Never throw: the whole body (settings reads, sound-player lookup
+        // and both plays included) is guarded, since it runs inside the
+        // minute-tick callback. A deleted/moved custom file still falls
+        // back to the theme bell via the inner guards below.
+        try {
+            const now = GLib.DateTime.new_now_local();
+            const h   = now.get_hour();
+            if (h !== this._lastHour) {
+                this._lastHour = h;
+                if (this._settings.get_boolean('beep-on-hour')) {
+                    const customFile = this._settings.get_string('hour-sound-file');
+                    const player = global.display.get_sound_player();
+                    let played = false;
+                    if (customFile) {
+                        try {
+                            const file = Gio.File.new_for_path(customFile);
+                            if (file.query_exists(null)) {
+                                player.play_from_file(file, 'Hour bell', null);
+                                played = true;
+                            }
+                        } catch {} // unusable custom file; fall through to the bell
+                    }
+                    if (!played) {
+                        try {
+                            player.play_from_theme('bell', 'Hour bell', null);
+                        } catch {} // no sound available; the tick must go on
+                    }
+                }
             }
-        }
+        } catch {} // settings/player unavailable; the tick must go on
     }
 
     _defaultText() {
