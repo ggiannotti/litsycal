@@ -19,6 +19,21 @@ longer carries a `version` key — see that file's history for why).
   countdown still replaces the logo, or sits next to it in "Show alongside
   icon text" mode.
 
+### Fixed
+
+- The quick-add and time parsers gained a proper test suite (144 checks in
+  `tests/`), which caught several bad inputs — "99:99", "13pm", and a bare
+  decimal like "1.50" — being read as times they were never meant to be.
+  A range like "3-4pm" is read as its end (4pm) on purpose; a full range
+  ("9.30-10.30am", "9:30-10:30am", "9:30am-10am", "15h-16h") likewise
+  resolves to its end and is now removed whole from the title instead
+  of leaving its start behind.
+  "noon" and "midnight" are now read as 12:00 and 00:00 instead of being
+  taken for a location, and a range starting at one ("noon-1pm") is
+  likewise read as its end and removed whole from the title. The same
+  holds for a range whose start carries am/pm ("12pm-1pm", "3pm-4:30pm")
+  and for one ending at noon or midnight ("noon-midnight", "1pm-midnight").
+
 ## [8] - 2026-09-27
 
 ### Added

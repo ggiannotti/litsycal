@@ -110,30 +110,200 @@ function extractTime(text, atWord) {
     // preposition and, later, a real location marker (e.g. "... at 3pm at
     // Downtown Clinic").
     const optAt = atWord ? `(?:${escapeRegExp(atWord)}\\s+)?` : '';
+    // "noon"/"midnight" (translatable, built once here and reused by the
+    // named-time branch below) can also START a range: "noon-1pm" must be
+    // swallowed whole like "3-4pm", or the am/pm branch below would cut
+    // only "1pm" and strand "noon-" in the title. The dash is required,
+    // so a bare "Midnight snack at 8pm" still lets 8pm win on its own.
+    const noonWord = _('noon').toLowerCase();
+    const midnightWord = _('midnight').toLowerCase();
+    const namedTime = `(?:${escapeRegExp(noonWord)}|${escapeRegExp(midnightWord)})`;
 
-    // "3:30pm", "15:30", "3:30" - colon form, am/pm optional.
-    let m = new RegExp(`\\b${optAt}(\\d{1,2}):(\\d{2})\\s*(am|pm)?\\b`, 'iu').exec(text);
-    if (m) {
-        const hour = m[3] ? to24h(parseInt(m[1], 10), m[3]) : parseInt(m[1], 10);
-        return {time: `${pad(hour)}:${pad(parseInt(m[2], 10))}`, rest: cut(text, m)};
+    // Single range pass, before every loose branch below: "<start>
+    // [-–] <end>" (optional spaces around the dash, an immediately
+    // preceding "<at>" consumed with it) always resolves to its END
+    // and is cut whole via cut(). Start and end share the same token
+    // shapes; the start is shape-only (never validated, as before),
+    // while the end is validated with the same rules/to24h as the
+    // single-time branches below. An invalid end makes this pass skip
+    // the candidate entirely, leaving the branches below to decide.
+    // B1 preserved: a bare dotted end ("9.30-10.30") is not a range
+    // unless it carries am/pm or the "<at>" above anchors the range -
+    // a bare dotted decimal elsewhere ("Buy 3.50 milk") is not a
+    // range at all (no dash) and is untouched here too.
+    const rangeToken = `(?:${namedTime}|\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:am|pm)?|\\d{1,2}\\.\\d{2}\\s*(?:am|pm)?|\\d{1,2}h(?:\\d{2})?|\\d{1,2}\\s*(?:am|pm)|\\d{1,2})`;
+    const resolveRangeEnd = (raw, hasAt) => {
+        const end = raw.toLowerCase();
+        if (end === noonWord)
+            return '12:00';
+        if (end === midnightWord)
+            return '00:00';
+        let m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?$/.exec(end);
+        if (m) {
+            const rawHour = parseInt(m[1], 10);
+            const minute  = parseInt(m[2], 10);
+            const second  = m[3] ? parseInt(m[3], 10) : null;
+            if (minute > 59 || (second !== null && second > 59) ||
+                (m[4] ? rawHour < 1 || rawHour > 12 : rawHour > 23))
+                return null;
+            return `${pad(m[4] ? to24h(rawHour, m[4]) : rawHour)}:${pad(minute)}`;
+        }
+        m = /^(\d{1,2})\.(\d{2})\s*(am|pm)?$/.exec(end);
+        if (m) {
+            if (!m[3] && !hasAt)
+                return null;
+            const rawHour = parseInt(m[1], 10);
+            const minute  = parseInt(m[2], 10);
+            if (minute > 59 || (m[3] ? rawHour < 1 || rawHour > 12 : rawHour > 23))
+                return null;
+            return `${pad(m[3] ? to24h(rawHour, m[3]) : rawHour)}:${pad(minute)}`;
+        }
+        m = /^(\d{1,2})h(\d{2})?$/.exec(end);
+        if (m) {
+            const hour   = parseInt(m[1], 10);
+            const minute = m[2] ? parseInt(m[2], 10) : 0;
+            if (hour > 23 || minute > 59)
+                return null;
+            return `${pad(hour)}:${pad(minute)}`;
+        }
+        m = /^(\d{1,2})\s*(am|pm)$/.exec(end);
+        if (m) {
+            const rawHour = parseInt(m[1], 10);
+            if (rawHour < 1 || rawHour > 12)
+                return null;
+            return `${pad(to24h(rawHour, m[2]))}:00`;
+        }
+        m = /^(\d{1,2})$/.exec(end);
+        if (m) {
+            const hour = parseInt(m[1], 10);
+            if (hour > 23)
+                return null;
+            return `${pad(hour)}:00`;
+        }
+        return null;
+    };
+    const rangeAt = atWord ? `(${escapeRegExp(atWord)}\\s+)?` : '()';
+    for (const m of text.matchAll(new RegExp(`\\b${rangeAt}${rangeToken}\\s*[-–]\\s*(${rangeToken})\\b`, 'giu'))) {
+        const time = resolveRangeEnd(m[2], !!m[1]);
+        if (time)
+            return {time, rest: cut(text, m)};
     }
 
-    // "15h30", "15h" - pt_BR-style 24-hour shorthand.
-    m = new RegExp(`\\b${optAt}([01]?\\d|2[0-3])h(\\d{2})?\\b`, 'iu').exec(text);
-    if (m)
-        return {time: `${pad(parseInt(m[1], 10))}:${pad(m[2] ? parseInt(m[2], 10) : 0)}`, rest: cut(text, m)};
+    const namedRangePrefix = `(?:${namedTime}\\s*[-–]\\s*)?`;
+    // A range start may itself carry am/pm ("12pm-1pm"): without the
+    // optional suffix the prefixes below match only the bare hour, so
+    // the loose branch that runs first cuts the start alone and strands
+    // "-1pm" in the title.
+    const rangePrefix = `(?:(?:\\d{1,2}\\s*(?:am|pm)?|${namedTime})\\s*[-–]\\s*)?`;
+    // A range resolves to its END (as "3-4pm" already did), so a full
+    // start time before the dash must be swallowed too - otherwise only
+    // the end is cut and the start is left behind in the title
+    // ("9.30-10.30am call" used to leave "9.30- call"). All inner groups
+    // are non-capturing so the callers' group numbers stay stable. Bare
+    // dotted decimals are unaffected: without an am/pm or "<at>" anchor
+    // the dotted caller below still skips the whole candidate.
+    const colonRangePrefix = `(?:(?:\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:am|pm)?|\\d{1,2}\\s*(?:am|pm)?|${namedTime})\\s*[-–]\\s*)?`;
+    const dottedRangePrefix = `(?:(?:\\d{1,2}\\.\\d{2}\\s*(?:am|pm)?|\\d{1,2}\\s*(?:am|pm)?|${namedTime})\\s*[-–]\\s*)?`;
 
-    // "3pm", "3 pm" - am/pm makes a bare number unambiguous.
-    m = new RegExp(`\\b${optAt}(\\d{1,2})\\s*(am|pm)\\b`, 'iu').exec(text);
-    if (m)
-        return {time: `${pad(to24h(parseInt(m[1], 10), m[2]))}:00`, rest: cut(text, m)};
+    // A range ending at a named time ("noon-midnight", "1pm-midnight",
+    // "9:30-noon") resolves to that end, like every other range, and is
+    // cut whole: no numeric branch below can end at a named time, so
+    // without this pass one of them would cut only the start (or the
+    // named end alone) and strand the other half in the title. The start
+    // is shape-only (same as the range prefixes above): it is swallowed,
+    // never resolved. The dash is required, so a bare "Midnight snack
+    // at 8pm" still lets 8pm win on its own below.
+    const namedEnd = new RegExp(
+        `\\b${optAt}(?:${namedTime}|\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:am|pm)?|\\d{1,2}\\.\\d{2}\\s*(?:am|pm)?|\\d{1,2}\\s*(?:am|pm)|\\d{1,2}h\\d{0,2}|\\d{1,2})\\s*[-–]\\s*(${escapeRegExp(noonWord)}|${escapeRegExp(midnightWord)})\\b`, 'iu').exec(text);
+    if (namedEnd)
+        return {time: namedEnd[1].toLowerCase() === noonWord ? '12:00' : '00:00', rest: cut(text, namedEnd)};
+
+    // "3:30pm", "15:30", "3:30" - colon form, am/pm optional. Iterate
+    // every candidate (fresh global regex per call, so no lastIndex
+    // carry-over): an invalid one is skipped, not allowed to block a
+    // later valid time in the same text.
+    for (const m of text.matchAll(new RegExp(`\\b${optAt}${colonRangePrefix}(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*(am|pm)?\\b`, 'giu'))) {
+        const rawHour = parseInt(m[1], 10);
+        const minute  = parseInt(m[2], 10);
+        const second  = m[3] ? parseInt(m[3], 10) : null;
+        const valid   = minute <= 59 && (second === null || second <= 59) &&
+                        (m[4] ? rawHour >= 1 && rawHour <= 12 : rawHour <= 23);
+        if (valid) {
+            const hour = m[4] ? to24h(rawHour, m[4]) : rawHour;
+            return {time: `${pad(hour)}:${pad(minute)}`, rest: cut(text, m)};
+        }
+        // Invalid time (e.g. "99:99"): keep searching, then fall through.
+    }
+
+    // "9.30am", "at 9.30" - dotted form, but ONLY with an explicit am/pm
+    // or immediately after the time preposition. A bare dotted decimal
+    // ("Budget 1.50", "Buy 3.50 milk") is a price/quantity, never a time:
+    // without one of those anchors it is skipped (and left in the title),
+    // as are invalid candidates, so a later valid time still wins. The
+    // leading capture is the consumed "<at> " itself (an empty group when
+    // there's no preposition word), which keeps the other group numbers
+    // stable either way.
+    const dottedAt = atWord ? `(${escapeRegExp(atWord)}\\s+)?` : '()';
+    for (const m of text.matchAll(new RegExp(`\\b${dottedAt}${dottedRangePrefix}(\\d{1,2})\\.(\\d{2})\\s*(am|pm)?\\b`, 'giu'))) {
+        if (!m[1] && !m[4])
+            continue;
+        const rawHour = parseInt(m[2], 10);
+        const minute  = parseInt(m[3], 10);
+        const valid   = minute <= 59 &&
+                        (m[4] ? rawHour >= 1 && rawHour <= 12 : rawHour <= 23);
+        if (valid) {
+            const hour = m[4] ? to24h(rawHour, m[4]) : rawHour;
+            return {time: `${pad(hour)}:${pad(minute)}`, rest: cut(text, m)};
+        }
+    }
+
+    // "15h30", "15h" - pt_BR-style 24-hour shorthand. Same
+    // iterate-and-skip-invalid rule as the colon form above: invalid
+    // minutes (e.g. "12h60") don't block a later valid time.
+    for (const cand of text.matchAll(new RegExp(`\\b${optAt}${namedRangePrefix}([01]?\\d|2[0-3])h(\\d{2})?\\b`, 'giu'))) {
+        const minute = cand[2] ? parseInt(cand[2], 10) : 0;
+        if (minute <= 59)
+            return {time: `${pad(parseInt(cand[1], 10))}:${pad(minute)}`, rest: cut(text, cand)};
+    }
+
+    // "3pm", "3 pm" - am/pm makes a bare number unambiguous. Same
+    // iterate-and-skip-invalid rule as the colon form above.
+    for (const cand of text.matchAll(new RegExp(`\\b${optAt}${rangePrefix}(\\d{1,2})\\s*(am|pm)\\b`, 'giu'))) {
+        const rawHour = parseInt(cand[1], 10);
+        if (rawHour >= 1 && rawHour <= 12)
+            return {time: `${pad(to24h(rawHour, cand[2]))}:00`, rest: cut(text, cand)};
+    }
+
+    // "noon"/"midnight" (translatable keywords, same treatment as
+    // today/tomorrow in extractDate) are unambiguous times in their own
+    // right: 12:00 and 00:00. Recognizing them here - rather than merely
+    // refusing them as locations in extractLocation - also means
+    // "Lunch 12.00 at noon" gets a time instead of stranding "noon" as a
+    // bogus place (its bare "12.00" stays in the title, per the dotted
+    // rule above, as with any other unanchored decimal).
+    for (const [word, time] of [[noonWord, '12:00'], [midnightWord, '00:00']]) {
+        // Swallow a leading "<at> " too (via optAt), so "at noon" doesn't
+        // leave a stray "at" behind in the title.
+        const m = new RegExp(`\\b${optAt}${escapeRegExp(word)}\\b`, 'iu').exec(text);
+        if (m)
+            return {time, rest: cut(text, m)};
+    }
 
     // "<at> 3" - a bare hour is only safe to read right after the
     // (translatable) time-preposition keyword.
     if (atWord) {
-        m = new RegExp(`\\b${escapeRegExp(atWord)}\\s+(\\d{1,2})\\b`, 'iu').exec(text);
-        if (m)
-            return {time: `${pad(parseInt(m[1], 10) % 24)}:00`, rest: cut(text, m)};
+        // Negative lookaheads: a number followed by ':'/'-' is the
+        // (invalid) hour of a colon time (e.g. "13:30pm") or part of a
+        // name (e.g. "7-Eleven"), and one followed by '.'+digit is a
+        // decimal (e.g. "8.30"), not a bare hour - don't fabricate
+        // "13:00"/"07:00"/"08:00" out of them. A '.' with no digit after
+        // it (end of sentence, "at 3.") still counts as a bare hour.
+        const m = new RegExp(`\\b${escapeRegExp(atWord)}\\s+(\\d{1,2})(?!\\s*[:\\-])(?!\\.\\d)\\b`, 'iu').exec(text);
+        if (m) {
+            const rawHour = parseInt(m[1], 10);
+            if (rawHour <= 23)
+                return {time: `${pad(rawHour)}:00`, rest: cut(text, m)};
+        }
     }
 
     return null;
@@ -154,7 +324,23 @@ function extractLocation(text, locationWord) {
     const m = re.exec(text);
     if (!m || !m[2].trim())
         return null;
-    return {location: m[2].trim(), rest: text.slice(0, m.index).trim()};
+    const location = m[2].trim();
+    // A bare number / time-like token ("at 99", "at 99:99", "at 13pm",
+    // "at 23h60", "at 9.30am") is a failed time, not a place; digit-led text
+    // ("221B Baker St") still counts. Trailing punctuation (and a leftover
+    // '-' from a range like "5-6pm") is stripped only for this test
+    // ("at 13pm!" is still a failed time), so a real place like
+    // "Cafe Nero!" - not time-like once stripped - is kept, punctuation
+    // and all, below.
+    const timeLike = location.replace(/[!?.,()-]+$/, '');
+    if (/^(?:\d+|\d+:\d{2}(?::\d{2})?\s*(?:am|pm)?|\d+\.\d+\s*(?:am|pm)?|\d+\s*(?:am|pm)|\d+h\d{0,2}\s*(?:am|pm)?)$/iu.test(timeLike))
+        return null;
+    // "noon"/"midnight" are times (see extractTime), never places - this
+    // covers a redundant second time word left over after a numeric time
+    // was already extracted (e.g. "Lunch 3pm at noon").
+    if ([_('noon').toLowerCase(), _('midnight').toLowerCase()].includes(timeLike.toLowerCase()))
+        return null;
+    return {location, rest: text.slice(0, m.index).trim()};
 }
 
 // Parses a quick-add one-liner into a draft for EventPanel: whatever's
