@@ -657,7 +657,13 @@ class LitsycalCalendar extends St.BoxLayout {
         if (!monitor)
             return;
         const panelH = Main.panel.get_height();
-        top = Math.max(top ?? this.get_transformed_position()[1], monitor.y + panelH);
+        // On the menu's first open this runs before the widget's first
+        // allocation, when the transformed position is NaN - and NaN would
+        // pass through every Math.max() below into "max-height: NaNpx",
+        // which St rejects with a warning, leaving the agenda uncapped. Fall
+        // back to the panel's bottom edge until the next pass has real values.
+        const curY = this.get_transformed_position()[1];
+        top = Math.max(top ?? (Number.isNaN(curY) ? 0 : curY), monitor.y + panelH);
 
         // The widget's own padding, borders and inter-child spacing: its
         // preferred height minus that of the children it lays out.

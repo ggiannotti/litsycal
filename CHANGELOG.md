@@ -19,6 +19,13 @@ longer carries a `version` key — see that file's history for why).
   countdown still replaces the logo, or sits next to it in "Show alongside
   icon text" mode.
 
+### Fixed
+
+- The agenda's height limit is now applied from the first time the menu
+  opens. Before, that first open left the agenda uncapped, so a busy week
+  could push the popup past the bottom of the screen, and GNOME Shell's log
+  got an "Ignoring length property that isn't a number" warning each time.
+
 ## [8] - 2026-09-27
 
 ### Added
