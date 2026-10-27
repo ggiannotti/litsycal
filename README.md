@@ -87,6 +87,9 @@ automatically through GNOME's extension updater.
 
 ### From source
 
+Developing on Litsycal instead of just installing it? Follow
+[CONTRIBUTING.md](CONTRIBUTING.md) for the development setup and checks.
+
 1. Clone the repository:
    ```bash
    git clone git@github.com:mlkonrad/litsycal.git
