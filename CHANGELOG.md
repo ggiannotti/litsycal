@@ -18,6 +18,11 @@ longer carries a `version` key — see that file's history for why).
   selected, since there is no date text for them to change. A meeting
   countdown still replaces the logo, or sits next to it in "Show alongside
   icon text" mode.
+- Keyboard navigation in event search and the event popover. In search
+  (Ctrl+F), the Up and Down arrows move between the search field and the
+  results, and Enter opens the highlighted one. In an event's popover, Tab
+  and Shift+Tab move through the delete button and the event's links, and
+  Esc now closes the popover whichever of them is focused.
 
 ### Fixed
 
