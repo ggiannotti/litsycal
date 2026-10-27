@@ -1,6 +1,6 @@
 #!/bin/sh -e
 # Runs the same checks as .github/workflows/ci.yml, locally. Used by the
-# pre-push hook (.githooks/pre-push) and safe to run by hand any time —
+# pre-push hook (.githooks/pre-push) and safe to run by hand any time -
 # `./scripts/check.sh`. Keep this in sync with ci.yml's steps; it exists so
 # a lint/syntax/translation regression is caught before a push, not after,
 # in an environment (like this one, historically) where CI itself was the
