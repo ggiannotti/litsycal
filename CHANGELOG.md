@@ -19,6 +19,13 @@ longer carries a `version` key — see that file's history for why).
   countdown still replaces the logo, or sits next to it in "Show alongside
   icon text" mode.
 
+### Fixed
+
+- Litsycal now opens on systems without Evolution Data Server installed
+  (#10). It used to fail to load at all there; the calendar libraries are
+  now loaded only when needed, so without them you get the grid and the
+  time-zone clocks, just no calendars or events.
+
 ## [8] - 2026-09-27
 
 ### Added
