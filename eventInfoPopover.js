@@ -418,7 +418,17 @@ export class EventInfoPopover {
         const GAP     = 8;
         const CORNER  = 16;
 
-        const [ax, ay] = anchor.get_transformed_position();
+        // Before the anchor's first allocation its transformed position
+        // can be NaN, and NaN would pass through the clamps below into
+        // set_position() for both the box and the arrow derived from it.
+        // Treat a NaN component as 0 (the same fallback as in
+        // _updateAgendaMaxHeight): the clamps then keep both on the
+        // monitor until a later pass has real values, instead of leaving
+        // them at their unclamped origin once the caller makes them
+        // visible.
+        const [rawAx, rawAy] = anchor.get_transformed_position();
+        const ax = Number.isFinite(rawAx) ? rawAx : 0;
+        const ay = Number.isFinite(rawAy) ? rawAy : 0;
         const aw = anchor.get_width();
         const ah = anchor.get_height();
         const anchorCenterY = ay + ah / 2;
