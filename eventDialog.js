@@ -874,6 +874,16 @@ export class EventPanel {
 
     _toggleAllDay() {
         this._allDay = !this._allDay;
+        // A new event's end-date picker defaults to start + 60 min
+        // (see the constructor), so a late start (23:00 + 1h) has
+        // already rolled it onto the next day. _save() reads that
+        // picker for all-day events, so without this, turning all-day
+        // on for such an event would save an unintended second day.
+        // An existing event's end date is real data, not that default,
+        // so only a new event's picker is reset to the start date;
+        // a multi-day span can still be set on the picker afterwards.
+        if (this._allDay && !this._event)
+            this._endDatePicker.setValue(this._startDatePicker.getValue());
         this._allDayBtn.set_label(this._allDay ? _('On') : _('Off'));
         this._allDayBtn.remove_style_class_name('litsycal-panel-toggle-on');
         this._allDayBtn.remove_style_class_name('litsycal-panel-toggle-off');
@@ -1678,7 +1688,15 @@ export class EventPanel {
         const until  = this._repeatEndPicker.getValue() === 'ON_DATE'
             ? this._parseDate(this._repeatUntilPicker.getValue())
             : null;
-        return {freq: preset.freq, interval: preset.interval, until};
+        // The picker only edits UNTIL's date; carry the time-of-day the
+        // source rule had (see parseRecurrence's untilTime in ical.js)
+        // over to the possibly-new date instead of resetting it to
+        // end-of-day.
+        const untilTime = until ? this._event?.recurrence?.untilTime : null;
+        const rec = {freq: preset.freq, interval: preset.interval, until};
+        if (untilTime)
+            rec.untilTime = untilTime;
+        return rec;
     }
 
     _alarmFromUI() {
@@ -1720,6 +1738,13 @@ export class EventPanel {
             minute = st % 60;
             endHour = Math.floor(et / 60);
             endMinute = et % 60;
+            endDate = this._parseDate(this._endDatePicker.getValue()) ?? startDate;
+        } else {
+            // All-day: the end *date* picker stays visible (only its
+            // time field is hidden, see _updateTimeVisibility), and a
+            // multi-day all-day event's span lives in it - dropping it
+            // here truncated every edited all-day event back to a
+            // single day.
             endDate = this._parseDate(this._endDatePicker.getValue()) ?? startDate;
         }
 

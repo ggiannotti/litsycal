@@ -43,6 +43,9 @@ jobs:
             gjs /tmp/check-syntax.js "$f" || exit 1
           done
 
+      - name: Unit tests
+        run: npm test
+
       - name: Validate translations
         run: |
           for po in po/*.po; do
