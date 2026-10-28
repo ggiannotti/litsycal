@@ -465,8 +465,10 @@ class LitsycalIndicator extends PanelMenu.Button {
             if (this._settings.get_boolean('beep-on-hour')) {
                 const customFile = this._settings.get_string('hour-sound-file');
                 const player = global.display.get_sound_player();
-                if (customFile)
-                    player.play_from_file(Gio.File.new_for_path(customFile), 'Hour bell', null);
+                // Custom file gone (deleted/moved) -> theme bell.
+                const file = customFile ? Gio.File.new_for_path(customFile) : null;
+                if (file?.query_exists(null))
+                    player.play_from_file(file, 'Hour bell', null);
                 else
                     player.play_from_theme('bell', 'Hour bell', null);
             }

@@ -238,8 +238,13 @@ export default class LitsycalPrefs extends ExtensionPreferences {
         let previewMedia = null;
         speakerBtn.connect('clicked', () => {
             previewMedia?.pause();
-            previewMedia = Gtk.MediaFile.new_for_filename(
-                settings.get_string('hour-sound-file') || '/usr/share/sounds/freedesktop/stereo/bell.oga');
+            const customFile = settings.get_string('hour-sound-file');
+            // Custom file gone (deleted/moved) -> default bell.
+            const file = customFile ? Gio.File.new_for_path(customFile) : null;
+            const soundFile = file?.query_exists(null)
+                ? customFile
+                : '/usr/share/sounds/freedesktop/stereo/bell.oga';
+            previewMedia = Gtk.MediaFile.new_for_filename(soundFile);
             previewMedia.play();
         });
 
