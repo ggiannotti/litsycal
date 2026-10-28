@@ -61,7 +61,6 @@ export class CalendarManager {
         this._year        = null;
         this._month       = null;
         this._available   = false;
-        this._destroyed   = false;
         this._searchToken = 0; // see searchEvents() - discards stale/out-of-order results
         this._fetchToken  = 0; // see fetchMonth() - discards a superseded batch's stale onDone
         this._disabled  = new Set(settings.get_strv('disabled-calendars'));
@@ -102,7 +101,7 @@ export class CalendarManager {
             logError(e, 'CalendarManager: Evolution Data Server libraries not found - calendar events unavailable');
             return;
         }
-        if (this._destroyed)
+        if (this._cancellable.is_cancelled())
             return;
         this._initRegistry();
     }
@@ -1039,7 +1038,6 @@ export class CalendarManager {
     // Cleanup
 
     destroy() {
-        this._destroyed = true;
         if (this._registryStartupPumpId) {
             GLib.source_remove(this._registryStartupPumpId);
             this._registryStartupPumpId = null;

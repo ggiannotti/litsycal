@@ -924,6 +924,14 @@ msgstr ""
 msgid "Loading calendars…"
 msgstr ""
 
+#: prefs.js:970
+msgid "Calendars unavailable"
+msgstr ""
+
+#: prefs.js:971
+msgid "Install evolution-data-server to see and manage calendars here"
+msgstr ""
+
 #: prefs.js:930
 msgid "Could not load calendars"
 msgstr ""

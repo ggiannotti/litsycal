@@ -948,6 +948,14 @@ msgstr "Apoie o desenvolvimento do Litsycal"
 msgid "Loading calendars…"
 msgstr "Carregando calendários…"
 
+#: prefs.js:970
+msgid "Calendars unavailable"
+msgstr "Calendários indisponíveis"
+
+#: prefs.js:971
+msgid "Install evolution-data-server to see and manage calendars here"
+msgstr "Instale o evolution-data-server para ver e gerenciar calendários aqui"
+
 #: prefs.js:930
 msgid "Could not load calendars"
 msgstr "Não foi possível carregar os calendários"
