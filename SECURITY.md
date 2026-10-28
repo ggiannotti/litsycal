@@ -2,20 +2,10 @@
 
 ## Reporting a vulnerability
 
-Do **not** open a public issue with exploitation details or other
-sensitive information.
-
-This repository does not have GitHub Private Vulnerability Reporting
-enabled, and no public email address is listed for the maintainer, so
-there is no private advisory form or public email channel to send
-details to today.
-
-Instead, open a minimal public issue that only asks the maintainer
-for a private contact channel for a security report — say nothing
-about the problem itself beyond that.
-
-Only share the technical details once a private channel has been
-arranged through that route.
+Report vulnerabilities privately through GitHub:
+https://github.com/mlkonrad/litsycal/security/advisories/new (the
+"Report a vulnerability" button on the Security tab). Please don't
+open a public issue for security problems.
 
 ## Scope
 
@@ -37,9 +27,8 @@ Relevant areas:
 
 Out of scope: vulnerabilities in GNOME Shell, Evolution Data Server or
 the calendar backends themselves — report those upstream. If you're not
-sure which side a problem sits on, use the same minimal-issue route
-above (no sensitive details) and it'll be pointed in the right
-direction.
+sure which side a problem sits on, use the same private reporting form
+above and it'll be pointed in the right direction.
 
 Only the latest release on extensions.gnome.org and the `main` branch
 are supported; there are no long-lived maintenance branches.

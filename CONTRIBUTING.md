@@ -11,9 +11,8 @@ Thanks for stopping by. Small, focused patches are the easiest to review.
   `node_modules/` in place.
 - `gettext` (`msgfmt` and `xgettext`), to validate and update translations
 - `glib-compile-schemas` (usually in `libglib2.0-bin` / `glib2-devel`)
-- Evolution Data Server, for calendars and events. Litsycal imports its
-  typelibs (`EDataServer`, `ECal`, `ICalGLib`) directly, so it is a hard
-  dependency, not an optional one:
+- Evolution Data Server, for calendars and events. Calendars and
+  events need EDS, but the extension still loads without it:
 
   ```bash
   # Debian/Ubuntu
