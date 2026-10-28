@@ -21,18 +21,16 @@ longer carries a `version` key — see that file's history for why).
 
 ### Fixed
 
-- The quick-add and time parsers gained a proper test suite (144 checks in
-  `tests/`), which caught several bad inputs — "99:99", "13pm", and a bare
-  decimal like "1.50" — being read as times they were never meant to be.
-  A range like "3-4pm" is read as its end (4pm) on purpose; a full range
-  ("9.30-10.30am", "9:30-10:30am", "9:30am-10am", "15h-16h") likewise
-  resolves to its end and is now removed whole from the title instead
-  of leaving its start behind.
-  "noon" and "midnight" are now read as 12:00 and 00:00 instead of being
-  taken for a location, and a range starting at one ("noon-1pm") is
-  likewise read as its end and removed whole from the title. The same
-  holds for a range whose start carries am/pm ("12pm-1pm", "3pm-4:30pm")
-  and for one ending at noon or midnight ("noon-midnight", "1pm-midnight").
+- Quick-add no longer reads bad times like "99:99", "13pm" or "23h60"
+  as real times, and a price or quantity like "1.50" is no longer read
+  as a time either. Writing a time with a dot, like "9.30am" or "at
+  9.30", is new: that spelling wasn't understood before, while a bare
+  decimal in the title still stays in the title. A time range now
+  gives the event its start time — "3-4pm" starts at 3pm, "Standup
+  9:30am-10am" at 9:30 — and the whole range is removed from the
+  title instead of leaving part of it behind. "noon" and "midnight"
+  are now read as 12:00 and 00:00 instead of being taken for a
+  location, including at the start of a range like "noon-1pm".
 
 ## [8] - 2026-09-27
 
