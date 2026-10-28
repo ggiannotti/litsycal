@@ -54,65 +54,69 @@ check('quickadd at 7-Eleven time', parseQuickAdd('Coffee at 7-Eleven')?.time, nu
 check('quickadd at 7-Eleven title', parseQuickAdd('Coffee at 7-Eleven')?.title, 'Coffee');
 check('quickadd at 7-Eleven location', parseQuickAdd('Coffee at 7-Eleven')?.location, '7-Eleven');
 check('quickadd at 8.30 time', parseQuickAdd('Dinner at 8.30')?.time, '08:30');
-// B1: a bare dotted decimal is never a time - a dotted time needs an
-// explicit am/pm or the time preposition immediately before it.
+// A bare dotted decimal is never a time: it needs am/pm or "at".
 check('quickadd 9.30 bare dotted time', parseQuickAdd('Dentist 9.30')?.time, null);
 check('quickadd 9.30 bare dotted title', parseQuickAdd('Dentist 9.30')?.title, 'Dentist 9.30');
 check('quickadd at 9.30 time', parseQuickAdd('Dentist at 9.30')?.time, '09:30');
 check('quickadd at 9.30 title', parseQuickAdd('Dentist at 9.30')?.title, 'Dentist');
 check('quickadd 9.30am time', parseQuickAdd('Call 9.30am')?.time, '09:30');
 check('quickadd 9.30am title', parseQuickAdd('Call 9.30am')?.title, 'Call');
-// B1 regression: decimals elsewhere in the phrase survive in the title
-// and don't become (or block) the real time.
+// Decimals elsewhere survive in the title and don't block the real time.
 check('quickadd Budget 1.50 at 3pm time', parseQuickAdd('Budget 1.50 at 3pm')?.time, '15:00');
 check('quickadd Budget 1.50 at 3pm title', parseQuickAdd('Budget 1.50 at 3pm')?.title, 'Budget 1.50');
 check('quickadd Room 4.12 at 3pm time', parseQuickAdd('Room 4.12 at 3pm')?.time, '15:00');
 check('quickadd Room 4.12 at 3pm title', parseQuickAdd('Room 4.12 at 3pm')?.title, 'Room 4.12');
 check('quickadd Buy 3.50 milk time', parseQuickAdd('Buy 3.50 milk')?.time, null);
 check('quickadd Buy 3.50 milk title', parseQuickAdd('Buy 3.50 milk')?.title, 'Buy 3.50 milk');
-check('quickadd range 3-4pm time', parseQuickAdd('meet 3-4pm')?.time, '16:00');
+check('quickadd range 3-4pm time', parseQuickAdd('meet 3-4pm')?.time, '15:00');
 check('quickadd range 3-4pm title', parseQuickAdd('meet 3-4pm')?.title, 'meet');
-check('quickadd range 3-4:30pm time', parseQuickAdd('meet 3-4:30pm')?.time, '16:30');
+check('quickadd range 3-4:30pm time', parseQuickAdd('meet 3-4:30pm')?.time, '15:00');
 check('quickadd range 3-4:30pm title', parseQuickAdd('meet 3-4:30pm')?.title, 'meet');
-check('quickadd range en-dash time', parseQuickAdd('meet 3–4pm')?.time, '16:00');
+check('quickadd range en-dash time', parseQuickAdd('meet 3–4pm')?.time, '15:00');
 check('quickadd range en-dash title', parseQuickAdd('meet 3–4pm')?.title, 'meet');
+check('quickadd range Standup time', parseQuickAdd('Standup 9:30am-10am')?.time, '09:30');
+check('quickadd range Standup title', parseQuickAdd('Standup 9:30am-10am')?.title, 'Standup');
+check('quickadd range bare-inherits time', parseQuickAdd('Call 9-10:30am')?.time, '09:00');
+check('quickadd range bare-inherits title', parseQuickAdd('Call 9-10:30am')?.title, 'Call');
 check('quickadd 9.30pm time', parseQuickAdd('Call 9.30pm')?.time, '21:30');
 check('quickadd 9.30pm title', parseQuickAdd('Call 9.30pm')?.title, 'Call');
-check('quickadd range dotted-bare time', parseQuickAdd('meet 3-4.30pm')?.time, '16:30');
+check('quickadd range dotted-bare time', parseQuickAdd('meet 3-4.30pm')?.time, '15:00');
 check('quickadd range dotted-bare title', parseQuickAdd('meet 3-4.30pm')?.title, 'meet');
-// A full range resolves to its end and is removed whole from the title,
-// in both dotted and colon form (regression: only the end used to be
-// cut, leaving "9.30- call" / "-10:30am call" behind).
-check('quickadd range dotted-full time', parseQuickAdd('9.30-10.30am call')?.time, '10:30');
+// A range gives its start time and is removed whole from the title.
+check('quickadd range dotted-full time', parseQuickAdd('9.30-10.30am call')?.time, '09:30');
 check('quickadd range dotted-full title', parseQuickAdd('9.30-10.30am call')?.title, 'call');
-check('quickadd range colon-full time', parseQuickAdd('9:30-10:30am call')?.time, '10:30');
+check('quickadd range colon-full time', parseQuickAdd('9:30-10:30am call')?.time, '09:30');
 check('quickadd range colon-full title', parseQuickAdd('9:30-10:30am call')?.title, 'call');
-check('quickadd range colon no-ampm time', parseQuickAdd('9:30-10:30 call')?.time, '10:30');
+check('quickadd range colon no-ampm time', parseQuickAdd('9:30-10:30 call')?.time, '09:30');
 check('quickadd range colon no-ampm title', parseQuickAdd('9:30-10:30 call')?.title, 'call');
-check('quickadd range dotted at-anchor time', parseQuickAdd('call at 9.30-10.30')?.time, '10:30');
+check('quickadd range dotted at-anchor time', parseQuickAdd('call at 9.30-10.30')?.time, '09:30');
 check('quickadd range dotted at-anchor title', parseQuickAdd('call at 9.30-10.30')?.title, 'call');
-// Single range pass: every start shape resolves to its (validated)
-// end and is cut whole, whatever form the start itself takes -
-// colon/dotted starts with am/pm, and the h-form with no numeric
-// prefix branch of its own, used to be cut at the start instead.
-check('quickadd range colon-ampm to ampm time', parseQuickAdd('Dentist 9:30am-10am')?.time, '10:00');
+// Every start shape works, including starts carrying am/pm and "h" forms.
+check('quickadd range colon-ampm to ampm time', parseQuickAdd('Dentist 9:30am-10am')?.time, '09:30');
 check('quickadd range colon-ampm to ampm title', parseQuickAdd('Dentist 9:30am-10am')?.title, 'Dentist');
-check('quickadd range dotted-ampm to ampm time', parseQuickAdd('Dentist 9.30am-10am')?.time, '10:00');
+check('quickadd range dotted-ampm to ampm time', parseQuickAdd('Dentist 9.30am-10am')?.time, '09:30');
 check('quickadd range dotted-ampm to ampm title', parseQuickAdd('Dentist 9.30am-10am')?.title, 'Dentist');
-check('quickadd range dotted-ampm full time', parseQuickAdd('Dentist 9.30am-10:30am')?.time, '10:30');
+check('quickadd range dotted-ampm full time', parseQuickAdd('Dentist 9.30am-10:30am')?.time, '09:30');
 check('quickadd range dotted-ampm full title', parseQuickAdd('Dentist 9.30am-10:30am')?.title, 'Dentist');
-check('quickadd range dotted to ampm time', parseQuickAdd('Call 9.30-10am')?.time, '10:00');
+check('quickadd range dotted to ampm time', parseQuickAdd('Call 9.30-10am')?.time, '09:30');
 check('quickadd range dotted to ampm title', parseQuickAdd('Call 9.30-10am')?.title, 'Call');
-check('quickadd range h time', parseQuickAdd('Call 15h-16h')?.time, '16:00');
+check('quickadd range h time', parseQuickAdd('Call 15h-16h')?.time, '15:00');
 check('quickadd range h title', parseQuickAdd('Call 15h-16h')?.title, 'Call');
-check('quickadd range h-minutes time', parseQuickAdd('Call 15h30-16h30')?.time, '16:30');
+check('quickadd range h-minutes time', parseQuickAdd('Call 15h30-16h30')?.time, '15:30');
 check('quickadd range h-minutes title', parseQuickAdd('Call 15h30-16h30')?.title, 'Call');
 check('quickadd Budget 1.50 time', parseQuickAdd('Budget 1.50')?.time, null);
 check('quickadd Budget 1.50 title', parseQuickAdd('Budget 1.50')?.title, 'Budget 1.50');
-// B1 still holds for a full dotted range with no am/pm and no "at"
-// anchor: neither end is a time and the text stays in the title.
+// A dotted range with no am/pm and no "at" anchor stays in the title.
 check('quickadd range dotted unanchored time', parseQuickAdd('9.30-10.30 call')?.time, null);
 check('quickadd range dotted unanchored title', parseQuickAdd('9.30-10.30 call')?.title, '9.30-10.30 call');
+// A bare-bare range with no "at" before it is not a time either: it
+// must not fabricate an hour or steal a real anchored time after it.
+check('quickadd range bare-bare then at 5pm time', parseQuickAdd('Version 2-3 at 5pm')?.time, '17:00');
+check('quickadd range bare-bare then at 5pm title', parseQuickAdd('Version 2-3 at 5pm')?.title, 'Version 2-3');
+check('quickadd range bare-bare people at 5pm time', parseQuickAdd('Team 3-4 people at 5pm')?.time, '17:00');
+check('quickadd range bare-bare people at 5pm title', parseQuickAdd('Team 3-4 people at 5pm')?.title, 'Team 3-4 people');
+check('quickadd range bare-bare alone time', parseQuickAdd('Meet 3-4')?.time, null);
+check('quickadd range bare-bare alone title', parseQuickAdd('Meet 3-4')?.title, 'Meet 3-4');
 // noon/midnight are times (12:00/00:00), never locations.
 check('quickadd at noon time', parseQuickAdd('Lunch at noon')?.time, '12:00');
 check('quickadd at noon title', parseQuickAdd('Lunch at noon')?.title, 'Lunch');
@@ -123,38 +127,34 @@ check('quickadd 12.00 at noon time', parseQuickAdd('Lunch 12.00 at noon')?.time,
 check('quickadd 12.00 at noon title', parseQuickAdd('Lunch 12.00 at noon')?.title, 'Lunch 12.00');
 check('quickadd 12.00 at noon location', parseQuickAdd('Lunch 12.00 at noon')?.location, null);
 check('quickadd 3pm at noon location', parseQuickAdd('Lunch 3pm at noon')?.location, null);
-// A range starting at noon/midnight resolves to (and is removed whole
-// for) its end, like a numeric range - the am/pm branch used to cut
-// only the end and strand "noon-"/"midnight-" in the title.
-check('quickadd range noon-ampm time', parseQuickAdd('Meet at noon-1pm')?.time, '13:00');
+// A range starting at noon/midnight gives that start, cut whole.
+check('quickadd range noon-ampm time', parseQuickAdd('Meet at noon-1pm')?.time, '12:00');
 check('quickadd range noon-ampm title', parseQuickAdd('Meet at noon-1pm')?.title, 'Meet');
-check('quickadd range midnight-ampm time', parseQuickAdd('Meet at midnight-1am')?.time, '01:00');
+check('quickadd range midnight-ampm time', parseQuickAdd('Meet at midnight-1am')?.time, '00:00');
 check('quickadd range midnight-ampm title', parseQuickAdd('Meet at midnight-1am')?.title, 'Meet');
-check('quickadd range noon-leading time', parseQuickAdd('noon-1pm meet')?.time, '13:00');
+check('quickadd range noon-leading time', parseQuickAdd('noon-1pm meet')?.time, '12:00');
 check('quickadd range noon-leading title', parseQuickAdd('noon-1pm meet')?.title, 'meet');
-check('quickadd range noon-colon time', parseQuickAdd('Meet noon-1:30pm')?.time, '13:30');
+check('quickadd range noon-colon time', parseQuickAdd('Meet noon-1:30pm')?.time, '12:00');
 check('quickadd range noon-colon title', parseQuickAdd('Meet noon-1:30pm')?.title, 'Meet');
-// A range start carrying am/pm ("12pm-1pm") is swallowed whole too:
-// the am/pm branch used to cut only the start and strand "-1pm".
-check('quickadd range ampm-ampm time', parseQuickAdd('12pm-1pm call')?.time, '13:00');
+// A range start carrying am/pm is cut whole too.
+check('quickadd range ampm-ampm time', parseQuickAdd('12pm-1pm call')?.time, '12:00');
 check('quickadd range ampm-ampm title', parseQuickAdd('12pm-1pm call')?.title, 'call');
-check('quickadd range 3pm-4pm time', parseQuickAdd('3pm-4pm call')?.time, '16:00');
+check('quickadd range 3pm-4pm time', parseQuickAdd('3pm-4pm call')?.time, '15:00');
 check('quickadd range 3pm-4pm title', parseQuickAdd('3pm-4pm call')?.title, 'call');
-check('quickadd range 11am-12pm time', parseQuickAdd('11am-12pm call')?.time, '12:00');
+check('quickadd range 11am-12pm time', parseQuickAdd('11am-12pm call')?.time, '11:00');
 check('quickadd range 11am-12pm title', parseQuickAdd('11am-12pm call')?.title, 'call');
-check('quickadd range ampm-colon time', parseQuickAdd('3pm-4:30pm call')?.time, '16:30');
+check('quickadd range ampm-colon time', parseQuickAdd('3pm-4:30pm call')?.time, '15:00');
 check('quickadd range ampm-colon title', parseQuickAdd('3pm-4:30pm call')?.title, 'call');
-check('quickadd range ampm en-dash time', parseQuickAdd('Meet 12pm–1pm')?.time, '13:00');
+check('quickadd range ampm en-dash time', parseQuickAdd('Meet 12pm–1pm')?.time, '12:00');
 check('quickadd range ampm en-dash title', parseQuickAdd('Meet 12pm–1pm')?.title, 'Meet');
-// A range ending at noon/midnight resolves to (and is removed whole
-// for) that named end, whatever form its start takes.
-check('quickadd range noon-midnight time', parseQuickAdd('noon-midnight party')?.time, '00:00');
+// A range ending at noon/midnight gives its start, cut whole.
+check('quickadd range noon-midnight time', parseQuickAdd('noon-midnight party')?.time, '12:00');
 check('quickadd range noon-midnight title', parseQuickAdd('noon-midnight party')?.title, 'party');
-check('quickadd range midnight-noon time', parseQuickAdd('midnight-noon sync')?.time, '12:00');
+check('quickadd range midnight-noon time', parseQuickAdd('midnight-noon sync')?.time, '00:00');
 check('quickadd range midnight-noon title', parseQuickAdd('midnight-noon sync')?.title, 'sync');
 check('quickadd range ampm-noon time', parseQuickAdd('12pm-noon call')?.time, '12:00');
 check('quickadd range ampm-noon title', parseQuickAdd('12pm-noon call')?.title, 'call');
-check('quickadd range ampm-midnight time', parseQuickAdd('1pm-midnight call')?.time, '00:00');
+check('quickadd range ampm-midnight time', parseQuickAdd('1pm-midnight call')?.time, '13:00');
 check('quickadd range ampm-midnight title', parseQuickAdd('1pm-midnight call')?.title, 'call');
 // No dash, no range: a leading "Midnight" is title text and the later
 // numeric time wins.
