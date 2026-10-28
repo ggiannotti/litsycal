@@ -238,28 +238,14 @@ export default class LitsycalPrefs extends ExtensionPreferences {
         let previewMedia = null;
         speakerBtn.connect('clicked', () => {
             previewMedia?.pause();
-            try {
-                const customFile = settings.get_string('hour-sound-file');
-                // Gtk.MediaFile doesn't throw for a missing file (that
-                // error only surfaces async via notify::error), so check
-                // existence up front and go straight to the default bell
-                // when the custom file was deleted/moved.
-                const soundFile = customFile && Gio.File.new_for_path(customFile).query_exists(null)
-                    ? customFile
-                    : '/usr/share/sounds/freedesktop/stereo/bell.oga';
-                previewMedia = Gtk.MediaFile.new_for_filename(soundFile);
-                previewMedia.play();
-            } catch {
-                // Custom file deleted/moved; try the default bell instead,
-                // and ignore even that failing rather than throwing.
-                try {
-                    previewMedia = Gtk.MediaFile.new_for_filename(
-                        '/usr/share/sounds/freedesktop/stereo/bell.oga');
-                    previewMedia.play();
-                } catch {
-                    previewMedia = null;
-                }
-            }
+            const customFile = settings.get_string('hour-sound-file');
+            // Custom file gone (deleted/moved) -> default bell.
+            const file = customFile ? Gio.File.new_for_path(customFile) : null;
+            const soundFile = file?.query_exists(null)
+                ? customFile
+                : '/usr/share/sounds/freedesktop/stereo/bell.oga';
+            previewMedia = Gtk.MediaFile.new_for_filename(soundFile);
+            previewMedia.play();
         });
 
         beepRow.add_suffix(beepSwitch);
