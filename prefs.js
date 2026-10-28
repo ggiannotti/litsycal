@@ -4,7 +4,6 @@ import Gtk from 'gi://Gtk';
 import Gdk from 'gi://Gdk';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
-import EDataServer from 'gi://EDataServer';
 
 // Every IANA time zone id available on this system, read from the same
 // tzdata tables GLib.TimeZone itself needs to resolve a zone id - so this
@@ -1009,63 +1008,80 @@ export default class LitsycalPrefs extends ExtensionPreferences {
 
         const disabled = new Set(settings.get_strv('disabled-calendars'));
 
-        EDataServer.SourceRegistry.new(null, (_obj, res) => {
-            let registry;
+        // EDataServer isn't guaranteed to be installed (minimal setups
+        // can lack the typelib) - a static top-level import throws at
+        // module load and takes down the whole Preferences window, not
+        // just this group, so it's loaded lazily here (same pattern as
+        // Geoclue/GWeather above).
+        (async () => {
+            let EDataServer;
             try {
-                registry = EDataServer.SourceRegistry.new_finish(res);
+                ({default: EDataServer} = await import('gi://EDataServer'));
             } catch {
-                loadingRow.set_title(_('Could not load calendars'));
+                loadingRow.set_title(_('Calendars unavailable'));
+                loadingRow.set_subtitle(_('Install evolution-data-server to see and manage calendars here'));
+                loadingRow.set_subtitle_lines(2);
                 return;
             }
 
-            const sources = registry.list_sources(EDataServer.SOURCE_EXTENSION_CALENDAR)
-                .filter(src => src.get_enabled());
-
-            group.remove(loadingRow);
-
-            if (sources.length === 0) {
-                group.add(this._buildNoCalendarsRow());
-                return;
-            }
-
-            for (const src of sources) {
-                const uid    = src.get_uid();
-                const calExt = src.get_extension(EDataServer.SOURCE_EXTENSION_CALENDAR);
-                const color  = calExt.get_color();
-                const name   = src.get_display_name();
-
-                const row = new Adw.SwitchRow({
-                    title:  GLib.markup_escape_text(name, -1),
-                    active: !disabled.has(uid),
-                });
-
-                // Backends report colour in whatever format they like (hex,
-                // "rgb(...)", named, ...); Gdk.RGBA.parse() accepts all of them.
-                const rgba = new Gdk.RGBA();
-                if (color && rgba.parse(color)) {
-                    const dot = new Gtk.DrawingArea({
-                        content_width: 10, content_height: 10,
-                        valign: Gtk.Align.CENTER,
-                    });
-                    dot.set_draw_func((_area, cr, width, height) => {
-                        cr.setSourceRGBA(rgba.red, rgba.green, rgba.blue, rgba.alpha);
-                        cr.arc(width / 2, height / 2, Math.min(width, height) / 2, 0, 2 * Math.PI);
-                        cr.fill();
-                        cr.$dispose();
-                    });
-                    row.add_prefix(dot);
+            EDataServer.SourceRegistry.new(null, (_obj, res) => {
+                let registry;
+                try {
+                    registry = EDataServer.SourceRegistry.new_finish(res);
+                } catch {
+                    loadingRow.set_title(_('Could not load calendars'));
+                    return;
                 }
 
-                row.connect('notify::active', () => {
-                    if (row.get_active())
-                        disabled.delete(uid);
-                    else
-                        disabled.add(uid);
-                    settings.set_strv('disabled-calendars', [...disabled]);
-                });
-                group.add(row);
-            }
-        });
+                const sources = registry.list_sources(EDataServer.SOURCE_EXTENSION_CALENDAR)
+                    .filter(src => src.get_enabled());
+
+                group.remove(loadingRow);
+
+                if (sources.length === 0) {
+                    group.add(this._buildNoCalendarsRow());
+                    return;
+                }
+
+                for (const src of sources) {
+                    const uid    = src.get_uid();
+                    const calExt = src.get_extension(EDataServer.SOURCE_EXTENSION_CALENDAR);
+                    const color  = calExt.get_color();
+                    const name   = src.get_display_name();
+
+                    const row = new Adw.SwitchRow({
+                        title:  GLib.markup_escape_text(name, -1),
+                        active: !disabled.has(uid),
+                    });
+
+                    // Backends report colour in whatever format they like (hex,
+                    // "rgb(...)", named, ...); Gdk.RGBA.parse() accepts all of them.
+                    const rgba = new Gdk.RGBA();
+                    if (color && rgba.parse(color)) {
+                        const dot = new Gtk.DrawingArea({
+                            content_width: 10, content_height: 10,
+                            valign: Gtk.Align.CENTER,
+                        });
+                        dot.set_draw_func((_area, cr, width, height) => {
+                            cr.setSourceRGBA(rgba.red, rgba.green, rgba.blue, rgba.alpha);
+                            cr.arc(width / 2, height / 2, Math.min(width, height) / 2, 0, 2 * Math.PI);
+                            cr.fill();
+                            cr.$dispose();
+                        });
+                        row.add_prefix(dot);
+                    }
+
+                    row.connect('notify::active', () => {
+                        if (row.get_active())
+                            disabled.delete(uid);
+                        else
+                            disabled.add(uid);
+                        settings.set_strv('disabled-calendars', [...disabled]);
+                    });
+                    group.add(row);
+                }
+            });
+        })();
     }
 
     // Evolution Data Server (which Litsycal reads directly) doesn't come

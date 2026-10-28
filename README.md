@@ -76,6 +76,13 @@ Add time zones under **Preferences → General → Time Zones** to show live clo
 
 ## Installation
 
+### Dependencies
+
+Calendar events require [Evolution Data Server](https://gitlab.gnome.org/GNOME/evolution-data-server). Without it, Litsycal still opens — the calendar grid and time-zone clocks work — but no calendars or events are available.
+
+- **Debian/Ubuntu:** `sudo apt install evolution-data-server gir1.2-edataserver-1.2 gir1.2-ecal-2.0 gir1.2-ical-3.0`
+- **Fedora:** `sudo dnf install evolution-data-server`
+
 ### From extensions.gnome.org (recommended)
 
 Install Litsycal from its page on GNOME Extensions:

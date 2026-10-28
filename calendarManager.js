@@ -1,10 +1,16 @@
-import EDataServer from 'gi://EDataServer';
-import ECal        from 'gi://ECal';
-import ICalGLib    from 'gi://ICalGLib';
-import GLib        from 'gi://GLib';
-import Gio         from 'gi://Gio';
+import GLib from 'gi://GLib';
+import Gio  from 'gi://Gio';
 
 import {MAX_EXTRA_WEEK_ROWS} from './helpers.js';
+
+// Evolution Data Server typelibs (EDataServer/ECal/ICalGLib) aren't
+// guaranteed to be installed - a static top-level import throws at module
+// load and takes down the whole extension, so they're loaded lazily by
+// _loadBackends() below (same pattern as Geoclue/GWeather in prefs.js).
+// Every use below only runs once these are non-null (see _loadBackends()).
+let EDataServer = null;
+let ECal = null;
+let ICalGLib = null;
 
 // How often the registry's private main context is run (see _initRegistry()):
 // quickly until the registry exists, so calendars load without delay, then
@@ -69,10 +75,36 @@ export class CalendarManager {
         // queued (see _initRegistry()) - which must not reach our handlers
         // while GJS is shutting down.
         global.connectObject('shutdown', () => this._registry?.disconnectObject(this), this);
-        this._initRegistry();
+        this._loadBackends();
     }
 
     // Init
+
+    // Loads the optional Evolution Data Server typelibs dynamically: on a
+    // system without them (e.g. Debian without evolution-data-server) the
+    // import fails, and a static import would have taken down the whole
+    // extension before any code ran. On failure _available stays false -
+    // the calendar grid, badge and clocks keep working without events, and
+    // isAvailable() already blocks create/search/edit in calendarWidget.js.
+    // Never throws.
+    async _loadBackends() {
+        try {
+            const [eds, ecal, ical] = await Promise.all([
+                import('gi://EDataServer'),
+                import('gi://ECal'),
+                import('gi://ICalGLib'),
+            ]);
+            EDataServer = eds.default;
+            ECal = ecal.default;
+            ICalGLib = ical.default;
+        } catch (e) {
+            logError(e, 'CalendarManager: Evolution Data Server libraries not found - calendar events unavailable');
+            return;
+        }
+        if (this._cancellable.is_cancelled())
+            return;
+        this._initRegistry();
+    }
 
     // The registry lives on a private main context, not the Shell's.
     // ESourceRegistry dispatches its signals (and its ESources') on whatever
@@ -134,6 +166,10 @@ export class CalendarManager {
 
     // Dispatches whatever the registry has queued on its private context.
     _pumpRegistry() {
+        // _initRegistry() may never have run (backends failed to load, or
+        // destroy() beat the async load) - nothing to pump then.
+        if (!this._registryContext)
+            return;
         while (this._registryContext.pending())
             this._registryContext.iteration(false);
     }
