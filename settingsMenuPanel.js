@@ -163,16 +163,7 @@ export class SettingsMenuPanel {
         const boxW    = this._box.get_width()  || 200;
         const boxH    = this._box.get_height() || 260;
 
-        // Before the anchor's first allocation its transformed position
-        // can be NaN, and NaN would pass through the clamps below into
-        // set_position(). Treat a NaN component as 0 (the same fallback
-        // as in _updateAgendaMaxHeight): the clamps then keep the panel
-        // on the monitor until a later pass has real values, instead of
-        // leaving it at its unclamped origin once the caller makes it
-        // visible.
-        const [rawAx, rawAy] = anchor.get_transformed_position();
-        const ax = Number.isFinite(rawAx) ? rawAx : 0;
-        const ay = Number.isFinite(rawAy) ? rawAy : 0;
+        const [ax, ay] = anchor.get_transformed_position();
         const ah = anchor.get_height();
 
         let x = ax; // left-align with the anchor
