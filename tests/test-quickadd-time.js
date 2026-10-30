@@ -156,6 +156,16 @@ check('quickadd range ampm-noon time', parseQuickAdd('12pm-noon call')?.time, '1
 check('quickadd range ampm-noon title', parseQuickAdd('12pm-noon call')?.title, 'call');
 check('quickadd range ampm-midnight time', parseQuickAdd('1pm-midnight call')?.time, '13:00');
 check('quickadd range ampm-midnight title', parseQuickAdd('1pm-midnight call')?.title, 'call');
+check('quickadd range bare-noon time', parseQuickAdd('Meet 11-noon')?.time, '11:00');
+check('quickadd range bare-noon title', parseQuickAdd('Meet 11-noon')?.title, 'Meet');
+check('quickadd range ampm-noon start time', parseQuickAdd('Meet 11am-noon')?.time, '11:00');
+check('quickadd range ampm-noon start title', parseQuickAdd('Meet 11am-noon')?.title, 'Meet');
+// A rejected range start must not let the named end become the time:
+// "9.30" has no am/pm or "at" anchor, so the range gives no time at all.
+check('quickadd range dotted-noon rejected time', parseQuickAdd('Meet 9.30-noon')?.time, null);
+check('quickadd range dotted-noon rejected title', parseQuickAdd('Meet 9.30-noon')?.title, 'Meet 9.30-noon');
+check('quickadd range dotted-midnight rejected time', parseQuickAdd('Meet 9.30-midnight')?.time, null);
+check('quickadd range dotted-midnight rejected title', parseQuickAdd('Meet 9.30-midnight')?.title, 'Meet 9.30-midnight');
 // No dash, no range: a leading "Midnight" is title text and the later
 // numeric time wins.
 check('quickadd Midnight snack at 8pm time', parseQuickAdd('Midnight snack at 8pm')?.time, '20:00');
