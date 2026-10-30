@@ -882,8 +882,21 @@ export class EventPanel {
         // An existing event's end date is real data, not that default,
         // so only a new event's picker is reset to the start date;
         // a multi-day span can still be set on the picker afterwards.
-        if (this._allDay && !this._event)
+        // _rememberSpan() after the reset keeps _spanMin in sync with
+        // the pickers (it goes negative for a 23:00 start, whose end
+        // time is 00:00 on the now-same day).
+        if (this._allDay && !this._event) {
             this._endDatePicker.setValue(this._startDatePicker.getValue());
+            this._rememberSpan();
+        } else if (!this._allDay) {
+            // Turning all-day back off: the reset above (or an all-day
+            // event's start-date-only end) leaves the end at 00:00 on
+            // the start day, before the start time, and _save() would
+            // refuse it. Re-derive the end from the start plus the
+            // remembered span - _onStartChanged() falls back to the
+            // default hour when that span isn't positive.
+            this._onStartChanged();
+        }
         this._allDayBtn.set_label(this._allDay ? _('On') : _('Off'));
         this._allDayBtn.remove_style_class_name('litsycal-panel-toggle-on');
         this._allDayBtn.remove_style_class_name('litsycal-panel-toggle-off');
