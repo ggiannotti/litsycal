@@ -2,10 +2,7 @@ import GLib from 'gi://GLib';
 import Gio  from 'gi://Gio';
 
 import {MAX_EXTRA_WEEK_ROWS} from './helpers.js';
-import {
-    allDayEndDate, buildICal, buildRRuleLine, buildValarmLines,
-    parseAlarm, parseRecurrence,
-} from './ical.js';
+import {allDayEndDate, buildICal, parseAlarm, parseRecurrence} from './ical.js';
 
 // Evolution Data Server typelibs (EDataServer/ECal/ICalGLib) aren't
 // guaranteed to be installed - a static top-level import throws at module
@@ -723,22 +720,6 @@ export class CalendarManager {
         return dates;
     }
 
-    // iCal builder - thin delegations to the pure functions in
-    // ical.js (kept so the call sites below read as before; the
-    // logic itself lives there, unit-tested by tests/test-ical.js).
-
-    _buildRRuleLine(recurrence) {
-        return buildRRuleLine(recurrence);
-    }
-
-    _buildValarmLines(alarm) {
-        return buildValarmLines(alarm);
-    }
-
-    _buildICal(uid, fields) {
-        return buildICal(uid, fields);
-    }
-
     // Create
 
     createEvent(fields, sourceUid, onDone) {
@@ -753,7 +734,7 @@ export class CalendarManager {
             // new_from_string inside the try too: a binding throw there
             // must report via onDone, never escape synchronously.
             ical = ICalGLib.Component.new_from_string(
-                this._buildICal(GLib.uuid_string_random(), fields));
+                buildICal(GLib.uuid_string_random(), fields));
         } catch (e) {
             onDone?.(e);
             return;
@@ -786,7 +767,7 @@ export class CalendarManager {
     // with a 409 (Conflict) - it won't accept a modification that strips a
     // meeting's organizer/attendees/conferencing structure.
     _applyFieldsToIcal(ical, fields) {
-        const newIcal = ICalGLib.Component.new_from_string(this._buildICal(ical.get_uid(), fields));
+        const newIcal = ICalGLib.Component.new_from_string(buildICal(ical.get_uid(), fields));
         if (!newIcal)
             throw new Error('Invalid calendar data');
 
