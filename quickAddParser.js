@@ -206,12 +206,6 @@ function extractTime(text, atWord) {
     const colonRangePrefix = `(?:(?:\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:am|pm)?|\\d{1,2}\\s*(?:am|pm)?|${namedTime})\\s*[-–]\\s*)?`;
     const dottedRangePrefix = `(?:(?:\\d{1,2}\\.\\d{2}\\s*(?:am|pm)?|\\d{1,2}\\s*(?:am|pm)?|${namedTime})\\s*[-–]\\s*)?`;
 
-    // Range ending at noon/midnight: no numeric branch below matches it.
-    const namedEnd = new RegExp(
-        `\\b${optAt}(?:${namedTime}|\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:am|pm)?|\\d{1,2}\\.\\d{2}\\s*(?:am|pm)?|\\d{1,2}\\s*(?:am|pm)|\\d{1,2}h\\d{0,2}|\\d{1,2})\\s*[-–]\\s*(${escapeRegExp(noonWord)}|${escapeRegExp(midnightWord)})\\b`, 'iu').exec(text);
-    if (namedEnd)
-        return {time: namedEnd[1].toLowerCase() === noonWord ? '12:00' : '00:00', rest: cut(text, namedEnd)};
-
     // Colon form; invalid candidates are skipped so a later valid one wins.
     for (const m of text.matchAll(new RegExp(`\\b${optAt}${colonRangePrefix}(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*(am|pm)?\\b`, 'giu'))) {
         const rawHour = parseInt(m[1], 10);
@@ -254,11 +248,16 @@ function extractTime(text, atWord) {
             return {time: `${pad(to24h(rawHour, cand[2]))}:00`, rest: cut(text, cand)};
     }
 
-    // Named times: noon is 12:00, midnight is 00:00.
+    // Named times: noon is 12:00, midnight is 00:00. One right after a
+    // dash is a range end, not a time of its own: the range pass above
+    // already took ranges with a valid start, so a rejected start must
+    // not let the end be taken instead ("Meet 9.30-noon" has no time).
     for (const [word, time] of [[noonWord, '12:00'], [midnightWord, '00:00']]) {
-        const m = new RegExp(`\\b${optAt}${escapeRegExp(word)}\\b`, 'iu').exec(text);
-        if (m)
+        for (const m of text.matchAll(new RegExp(`\\b${optAt}${escapeRegExp(word)}\\b`, 'giu'))) {
+            if (/[-–]\s*$/.test(text.slice(0, m.index)))
+                continue;
             return {time, rest: cut(text, m)};
+        }
     }
 
     // Bare hour only after "<at>". Lookaheads reject colon times,
