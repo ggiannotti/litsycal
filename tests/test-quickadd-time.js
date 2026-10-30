@@ -166,6 +166,15 @@ check('quickadd range dotted-noon rejected time', parseQuickAdd('Meet 9.30-noon'
 check('quickadd range dotted-noon rejected title', parseQuickAdd('Meet 9.30-noon')?.title, 'Meet 9.30-noon');
 check('quickadd range dotted-midnight rejected time', parseQuickAdd('Meet 9.30-midnight')?.time, null);
 check('quickadd range dotted-midnight rejected title', parseQuickAdd('Meet 9.30-midnight')?.title, 'Meet 9.30-midnight');
+check('quickadd range dotted-noon spaced rejected time', parseQuickAdd('Meet 9.30 - noon')?.time, null);
+check('quickadd range dotted-noon spaced rejected title', parseQuickAdd('Meet 9.30 - noon')?.title, 'Meet 9.30 - noon');
+check('quickadd range dotted-noon en-dash rejected time', parseQuickAdd('Meet 9.30–noon')?.time, null);
+check('quickadd range dotted-noon en-dash rejected title', parseQuickAdd('Meet 9.30–noon')?.title, 'Meet 9.30–noon');
+// ...but a valid start still gives its own time when the end is named.
+check('quickadd range dotted-ampm-noon time', parseQuickAdd('Meet 9.30am-noon')?.time, '09:30');
+check('quickadd range dotted-ampm-noon title', parseQuickAdd('Meet 9.30am-noon')?.title, 'Meet');
+check('quickadd range colon-noon time', parseQuickAdd('Meet 9:30-noon')?.time, '09:30');
+check('quickadd range colon-noon title', parseQuickAdd('Meet 9:30-noon')?.title, 'Meet');
 // No dash, no range: a leading "Midnight" is title text and the later
 // numeric time wins.
 check('quickadd Midnight snack at 8pm time', parseQuickAdd('Midnight snack at 8pm')?.time, '20:00');
