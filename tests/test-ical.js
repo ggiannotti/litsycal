@@ -3,9 +3,10 @@
 //   gjs -m tests/test-ical.js      (or: npm test)
 // Prints PASS/FAIL per check and exits non-zero if any check fails.
 //
-// ical.js imports only GI libraries (GLib, ICalGLib), never Shell-only
-// modules, so it is imported directly here - the code being exercised
-// is the code that ships, imported as a module, not extracted or copied.
+// ical.js imports only GLib (ICalGLib is passed into the parse
+// functions, imported directly here), never Shell-only modules, so it
+// is imported directly here - the code being exercised is the code
+// that ships, imported as a module, not extracted or copied.
 
 import System from 'system';
 import ICalGLib from 'gi://ICalGLib';
@@ -60,7 +61,7 @@ check('rrule build date-only until gets end-of-day',
 checkThrows('rrule build bad untilTime rejected, never reaches the wire',
     () => buildRRuleLine({freq: 'WEEKLY', interval: 1, until: '2025-12-31', untilTime: 'TX'}));
 
-const recWithTime = parseRecurrence(veventWith(['RRULE:FREQ=WEEKLY;INTERVAL=2;UNTIL=20251231T100000Z']));
+const recWithTime = parseRecurrence(ICalGLib, veventWith(['RRULE:FREQ=WEEKLY;INTERVAL=2;UNTIL=20251231T100000Z']));
 check('rrule parse freq', recWithTime.freq, 'WEEKLY');
 check('rrule parse interval', recWithTime.interval, 2);
 check('rrule parse until', recWithTime.until, '2025-12-31');
@@ -69,7 +70,7 @@ check('rrule roundtrip with time',
     buildRRuleLine(recWithTime),
     ['RRULE:FREQ=WEEKLY;INTERVAL=2;UNTIL=20251231T100000Z']);
 
-const recDateOnly = parseRecurrence(veventWith(['RRULE:FREQ=DAILY;UNTIL=20251231']));
+const recDateOnly = parseRecurrence(ICalGLib, veventWith(['RRULE:FREQ=DAILY;UNTIL=20251231']));
 check('rrule parse date-only until', recDateOnly.until, '2025-12-31');
 check('rrule parse date-only has no untilTime', 'untilTime' in recDateOnly, false);
 check('rrule roundtrip date-only',
@@ -89,24 +90,24 @@ const fakeIc = raw => ({
     get_first_property: () => ({get_value_as_string: () => raw}),
 });
 check('rrule UNTIL=20240101TX preserved raw',
-    parseRecurrence(fakeIc('FREQ=WEEKLY;UNTIL=20240101TX')),
+    parseRecurrence(ICalGLib, fakeIc('FREQ=WEEKLY;UNTIL=20240101TX')),
     {raw: 'FREQ=WEEKLY;UNTIL=20240101TX'});
 check('rrule UNTIL with short time suffix preserved raw',
-    parseRecurrence(fakeIc('FREQ=WEEKLY;UNTIL=20240101T12345')),
+    parseRecurrence(ICalGLib, fakeIc('FREQ=WEEKLY;UNTIL=20240101T12345')),
     {raw: 'FREQ=WEEKLY;UNTIL=20240101T12345'});
 check('rrule INTERVAL=2x preserved raw',
-    parseRecurrence(fakeIc('FREQ=WEEKLY;INTERVAL=2x')),
+    parseRecurrence(ICalGLib, fakeIc('FREQ=WEEKLY;INTERVAL=2x')),
     {raw: 'FREQ=WEEKLY;INTERVAL=2x'});
 check('rrule raw re-emitted verbatim',
-    buildRRuleLine(parseRecurrence(fakeIc('FREQ=WEEKLY;UNTIL=20240101TX'))),
+    buildRRuleLine(parseRecurrence(ICalGLib, fakeIc('FREQ=WEEKLY;UNTIL=20240101TX'))),
     ['RRULE:FREQ=WEEKLY;UNTIL=20240101TX']);
 // Shape-valid but semantically impossible UNTILs are {raw} too, not a
 // normalized/re-emitted date (2025-02-30, hour 24).
 check('rrule UNTIL=20250230 preserved raw',
-    parseRecurrence(fakeIc('FREQ=WEEKLY;UNTIL=20250230')),
+    parseRecurrence(ICalGLib, fakeIc('FREQ=WEEKLY;UNTIL=20250230')),
     {raw: 'FREQ=WEEKLY;UNTIL=20250230'});
 check('rrule UNTIL=20240101T246000Z preserved raw',
-    parseRecurrence(fakeIc('FREQ=WEEKLY;UNTIL=20240101T246000Z')),
+    parseRecurrence(ICalGLib, fakeIc('FREQ=WEEKLY;UNTIL=20240101T246000Z')),
     {raw: 'FREQ=WEEKLY;UNTIL=20240101T246000Z'});
 
 // --- VALARM: negative (after start) and positive triggers ---
@@ -121,7 +122,7 @@ check('valarm non-finite dropped', buildValarmLines({minutesBefore: NaN}), []);
 
 for (const min of [10, -10, 0, 1500]) {
     const ical = buildICal('test-1', {...baseFields, alarm: {minutesBefore: min}});
-    check(`valarm roundtrip ${min}`, parseAlarm(parseIcal(ical))?.minutesBefore, min);
+    check(`valarm roundtrip ${min}`, parseAlarm(ICalGLib, parseIcal(ical))?.minutesBefore, min);
 }
 
 // --- SUMMARY escaping: ';', newline, comma, backslash ---

@@ -12,6 +12,8 @@ import {
 // load and takes down the whole extension, so they're loaded lazily by
 // _loadBackends() below (same pattern as Geoclue/GWeather in prefs.js).
 // Every use below only runs once these are non-null (see _loadBackends()).
+// The static ical.js import above is safe on such a system: it imports
+// only GLib and receives ICalGLib as a function parameter instead.
 let EDataServer = null;
 let ECal = null;
 let ICalGLib = null;
@@ -609,8 +611,8 @@ export class CalendarManager {
                 if (location === '')
                     location = null;
 
-                recurrence = parseRecurrence(ic);
-                alarm      = parseAlarm(ic);
+                recurrence = parseRecurrence(ICalGLib, ic);
+                alarm      = parseAlarm(ICalGLib, ic);
                 attendees  = this._parseAttendees(ic);
 
                 // Present only on one occurrence of a recurring series (never

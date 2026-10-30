@@ -1,12 +1,15 @@
 // Pure iCal build/parse logic, split out of calendarManager.js so it
 // can be unit-tested with plain `gjs` (tests/test-ical.js): this module
-// imports only GI libraries (GLib, ICalGLib), never Shell-only modules
-// or resources - same pattern as quickAddParser.js / timeInput.js.
-// CalendarManager imports these and delegates to them; event objects
-// and field objects keep the shapes CalendarManager has always used.
+// imports only GLib, never Shell-only modules or resources - same
+// pattern as quickAddParser.js / timeInput.js. ICalGLib is not imported
+// here at all: the libical typelib isn't guaranteed to be installed,
+// and a static import would fail at module load on such a system (the
+// #10 bug #12 fixed), so the functions that need it take it as a
+// parameter from CalendarManager, which loads it lazily. Tests pass
+// their own import. CalendarManager delegates to these functions;
+// event objects and field objects keep the shapes it has always used.
 
 import GLib from 'gi://GLib';
-import ICalGLib from 'gi://ICalGLib';
 
 const pad = n => String(n).padStart(2, '0');
 
@@ -170,10 +173,11 @@ export function buildICal(uid, fields) {
 // Anything else (BYDAY, COUNT, multiple rules, ...) is kept as raw text so
 // editing an unrelated field never silently discards it.
 /**
+ * @param {object} ICalGLib the libical typelib, passed in (see header)
  * @param {ICalGLib.Component} ic the VEVENT's ical component
  * @returns {object|null} {freq, interval, until, untilTime?}, {raw}, or null
  */
-export function parseRecurrence(ic) {
+export function parseRecurrence(ICalGLib, ic) {
     const prop = ic.get_first_property(ICalGLib.PropertyKind.RRULE_PROPERTY);
     if (!prop)
         return null;
@@ -239,7 +243,7 @@ export function parseRecurrence(ic) {
     }
 }
 
-function allValarmBlocks(ic) {
+function allValarmBlocks(ICalGLib, ic) {
     const blocks = [];
     let v = ic.get_first_component(ICalGLib.ComponentKind.VALARM_COMPONENT);
     while (v) {
@@ -254,15 +258,16 @@ function allValarmBlocks(ic) {
 // alarms, absolute triggers, EMAIL/AUDIO actions, ...) is kept as raw
 // VALARM blocks so editing an unrelated field never silently discards it.
 /**
+ * @param {object} ICalGLib the libical typelib, passed in (see header)
  * @param {ICalGLib.Component} ic the VEVENT's ical component
  * @returns {object|null} {minutesBefore}, {raw}, or null
  */
-export function parseAlarm(ic) {
+export function parseAlarm(ICalGLib, ic) {
     const n = ic.count_components(ICalGLib.ComponentKind.VALARM_COMPONENT);
     if (n === 0)
         return null;
     if (n > 1)
-        return {raw: allValarmBlocks(ic)};
+        return {raw: allValarmBlocks(ICalGLib, ic)};
 
     const valarm = ic.get_first_component(ICalGLib.ComponentKind.VALARM_COMPONENT);
     try {
@@ -270,19 +275,19 @@ export function parseAlarm(ic) {
         const action     = actionProp?.get_value_as_string() ?? '';
         const trigProp = valarm.get_first_property(ICalGLib.PropertyKind.TRIGGER_PROPERTY);
         if (!trigProp || action !== 'DISPLAY')
-            return {raw: allValarmBlocks(ic)};
+            return {raw: allValarmBlocks(ICalGLib, ic)};
 
         // A relative trigger's raw form is a DURATION ("-PT10M", "PT0S", ...);
         // an absolute one is a DATE-TIME. dur.is_null_duration() can't tell
         // "explicitly zero" from "unset", so classify by raw form instead.
         const raw = trigProp.get_value_as_string() ?? '';
         if (!/^[+-]?P/i.test(raw))
-            return {raw: allValarmBlocks(ic)};
+            return {raw: allValarmBlocks(ICalGLib, ic)};
 
         const dur = trigProp.get_trigger().get_duration();
         return {minutesBefore: Math.round(-dur.as_int() / 60)};
     } catch {
-        return {raw: allValarmBlocks(ic)};
+        return {raw: allValarmBlocks(ICalGLib, ic)};
     }
 }
 
