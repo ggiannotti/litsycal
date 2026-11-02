@@ -662,9 +662,8 @@ class LitsycalCalendar extends St.BoxLayout {
         // pass through every Math.max() below into "max-height: NaNpx",
         // which St rejects with a warning, leaving the agenda uncapped. Fall
         // back to the panel's bottom edge until the next pass has real values.
-        // A caller-supplied top needs the same guard: the pin path rounds
-        // its own pre-allocation position, so a NaN top would slip past a
-        // plain ?? check and reintroduce the same NaN max-height.
+        // A caller-supplied top needs the same guard: a non-finite top
+        // would slip past a plain ?? check and reintroduce that NaN.
         const curY = this.get_transformed_position()[1];
         const fallbackY = Number.isFinite(curY) ? curY : 0;
         top = Math.max(Number.isFinite(top) ? top : fallbackY, monitor.y + panelH);
