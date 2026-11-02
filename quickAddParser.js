@@ -199,15 +199,16 @@ function extractTime(text, atWord) {
             return {time, rest: cut(text, m)};
     }
 
-    // Range prefixes for the branches below: swallow "<start> -" so a
-    // fallback match after the dash cuts the whole range.
-    const namedRangePrefix = `(?:${namedTime}\\s*[-–]\\s*)?`;
-    const rangePrefix = `(?:(?:\\d{1,2}\\s*(?:am|pm)?|${namedTime})\\s*[-–]\\s*)?`;
-    const colonRangePrefix = `(?:(?:\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:am|pm)?|\\d{1,2}\\s*(?:am|pm)?|${namedTime})\\s*[-–]\\s*)?`;
-    const dottedRangePrefix = `(?:(?:\\d{1,2}\\.\\d{2}\\s*(?:am|pm)?|\\d{1,2}\\s*(?:am|pm)?|${namedTime})\\s*[-–]\\s*)?`;
+    // The fallbacks below have no range prefixes: any range with a
+    // valid start was already taken above, so a candidate right after
+    // a dash is the end of a range whose start was rejected, and must
+    // not become the time instead ("Meet 9.30-10:30" has no time).
+    const afterDash = m => /[-–]\s*$/.test(text.slice(0, m.index));
 
     // Colon form; invalid candidates are skipped so a later valid one wins.
-    for (const m of text.matchAll(new RegExp(`\\b${optAt}${colonRangePrefix}(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*(am|pm)?\\b`, 'giu'))) {
+    for (const m of text.matchAll(new RegExp(`\\b${optAt}(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*(am|pm)?\\b`, 'giu'))) {
+        if (afterDash(m))
+            continue;
         const rawHour = parseInt(m[1], 10);
         const minute  = parseInt(m[2], 10);
         const second  = m[3] ? parseInt(m[3], 10) : null;
@@ -221,7 +222,9 @@ function extractTime(text, atWord) {
 
     // Dotted form needs am/pm or "<at>": a bare decimal is not a time.
     const dottedAt = atWord ? `(${escapeRegExp(atWord)}\\s+)?` : '()';
-    for (const m of text.matchAll(new RegExp(`\\b${dottedAt}${dottedRangePrefix}(\\d{1,2})\\.(\\d{2})\\s*(am|pm)?\\b`, 'giu'))) {
+    for (const m of text.matchAll(new RegExp(`\\b${dottedAt}(\\d{1,2})\\.(\\d{2})\\s*(am|pm)?\\b`, 'giu'))) {
+        if (afterDash(m))
+            continue;
         if (!m[1] && !m[4])
             continue;
         const rawHour = parseInt(m[2], 10);
@@ -235,14 +238,18 @@ function extractTime(text, atWord) {
     }
 
     // "15h30" 24-hour shorthand; invalid candidates are skipped as above.
-    for (const cand of text.matchAll(new RegExp(`\\b${optAt}${namedRangePrefix}([01]?\\d|2[0-3])h(\\d{2})?\\b`, 'giu'))) {
+    for (const cand of text.matchAll(new RegExp(`\\b${optAt}([01]?\\d|2[0-3])h(\\d{2})?\\b`, 'giu'))) {
+        if (afterDash(cand))
+            continue;
         const minute = cand[2] ? parseInt(cand[2], 10) : 0;
         if (minute <= 59)
             return {time: `${pad(parseInt(cand[1], 10))}:${pad(minute)}`, rest: cut(text, cand)};
     }
 
     // Bare hour with am/pm; invalid candidates are skipped as above.
-    for (const cand of text.matchAll(new RegExp(`\\b${optAt}${rangePrefix}(\\d{1,2})\\s*(am|pm)\\b`, 'giu'))) {
+    for (const cand of text.matchAll(new RegExp(`\\b${optAt}(\\d{1,2})\\s*(am|pm)\\b`, 'giu'))) {
+        if (afterDash(cand))
+            continue;
         const rawHour = parseInt(cand[1], 10);
         if (rawHour >= 1 && rawHour <= 12)
             return {time: `${pad(to24h(rawHour, cand[2]))}:00`, rest: cut(text, cand)};
@@ -254,7 +261,7 @@ function extractTime(text, atWord) {
     // not let the end be taken instead ("Meet 9.30-noon" has no time).
     for (const [word, time] of [[noonWord, '12:00'], [midnightWord, '00:00']]) {
         for (const m of text.matchAll(new RegExp(`\\b${optAt}${escapeRegExp(word)}\\b`, 'giu'))) {
-            if (/[-–]\s*$/.test(text.slice(0, m.index)))
+            if (afterDash(m))
                 continue;
             return {time, rest: cut(text, m)};
         }
@@ -264,7 +271,7 @@ function extractTime(text, atWord) {
     // names like "7-Eleven" and decimals like "8.30".
     if (atWord) {
         const m = new RegExp(`\\b${escapeRegExp(atWord)}\\s+(\\d{1,2})(?!\\s*[:\\-])(?!\\.\\d)\\b`, 'iu').exec(text);
-        if (m) {
+        if (m && !afterDash(m)) {
             const rawHour = parseInt(m[1], 10);
             if (rawHour <= 23)
                 return {time: `${pad(rawHour)}:00`, rest: cut(text, m)};

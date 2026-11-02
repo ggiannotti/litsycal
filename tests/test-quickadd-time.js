@@ -170,6 +170,14 @@ check('quickadd range dotted-noon spaced rejected time', parseQuickAdd('Meet 9.3
 check('quickadd range dotted-noon spaced rejected title', parseQuickAdd('Meet 9.30 - noon')?.title, 'Meet 9.30 - noon');
 check('quickadd range dotted-noon en-dash rejected time', parseQuickAdd('Meet 9.30–noon')?.time, null);
 check('quickadd range dotted-noon en-dash rejected title', parseQuickAdd('Meet 9.30–noon')?.title, 'Meet 9.30–noon');
+// Same for the numeric fallbacks: a rejected range start must not let
+// the range end become the time either, whatever its shape.
+check('quickadd range dotted-colon rejected time', parseQuickAdd('Meet 9.30-10:30')?.time, null);
+check('quickadd range dotted-colon rejected title', parseQuickAdd('Meet 9.30-10:30')?.title, 'Meet 9.30-10:30');
+check('quickadd range invalid-ampm rejected time', parseQuickAdd('Shift 22-2am')?.time, null);
+check('quickadd range invalid-ampm rejected title', parseQuickAdd('Shift 22-2am')?.title, 'Shift 22-2am');
+check('quickadd range dotted-h rejected time', parseQuickAdd('Meet 9.30-16h')?.time, null);
+check('quickadd range dotted-h rejected title', parseQuickAdd('Meet 9.30-16h')?.title, 'Meet 9.30-16h');
 // ...but a valid start still gives its own time when the end is named.
 check('quickadd range dotted-ampm-noon time', parseQuickAdd('Meet 9.30am-noon')?.time, '09:30');
 check('quickadd range dotted-ampm-noon title', parseQuickAdd('Meet 9.30am-noon')?.title, 'Meet');
