@@ -211,6 +211,16 @@ check('quickadd label-digit ampm2 time', parseQuickAdd('Phase1:5pm')?.time, '17:
 check('quickadd label-digit colon time', parseQuickAdd('Level3:9:30')?.time, '09:30');
 check('quickadd label-digit spaced ampm time', parseQuickAdd('Room 101:5pm')?.time, '17:00');
 check('quickadd label-digit dotted time', parseQuickAdd('Gate7:9.30am')?.time, '09:30');
+// But an invalid colon time on its own gives no time either: its
+// minutes are not a fragment time ("13:12pm" is not "12pm").
+check('quickadd invalid colon-ampm alone time', parseQuickAdd('Lunch at 13:12pm')?.time, null);
+check('quickadd invalid colon-ampm alone title', parseQuickAdd('Lunch at 13:12pm')?.title, 'Lunch at 13:12pm');
+check('quickadd invalid 99 colon-ampm alone time', parseQuickAdd('Meet 99:12am')?.time, null);
+check('quickadd invalid 99 colon-ampm alone title', parseQuickAdd('Meet 99:12am')?.title, 'Meet 99:12am');
+check('quickadd invalid 25 colon-ampm alone time', parseQuickAdd('Meet 25:12pm')?.time, null);
+check('quickadd invalid 25 colon-ampm alone title', parseQuickAdd('Meet 25:12pm')?.title, 'Meet 25:12pm');
+check('quickadd invalid colon-h alone time', parseQuickAdd('Timer 10:12h')?.time, null);
+check('quickadd invalid colon-h alone title', parseQuickAdd('Timer 10:12h')?.title, 'Timer 10:12h');
 // ...but a valid start still gives its own time when the end is named.
 check('quickadd range dotted-ampm-noon time', parseQuickAdd('Meet 9.30am-noon')?.time, '09:30');
 check('quickadd range dotted-ampm-noon title', parseQuickAdd('Meet 9.30am-noon')?.title, 'Meet');

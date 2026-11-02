@@ -207,10 +207,13 @@ function extractTime(text, atWord) {
     // "10:12am"), so walk back over the token's characters first: a
     // fragment of a bigger token is never a time of its own, and the
     // dash check must see the whole token, not just the fragment.
-    // But a fragment only counts as inside a token in a rejected
-    // range (the whole token sits after a dash) or inside a genuine
-    // decimal ("5pm" in "2.5pm"): a digit-ending label is neither
-    // ("B2:5pm" still gives its time).
+    // But a fragment only counts as inside a token if the stretch
+    // before it holds a digit and either the whole token sits after
+    // a dash (a rejected range's end), or the stretch plus the
+    // candidate forms a tried time token: a colon with a two-digit
+    // minute ("13:" + "12..." is "13:12") or a decimal ("2." +
+    // "5..." is "2.5"). A digit-ending label forms neither ("B2:" +
+    // "5pm" would be "2:5"), so its time still counts.
     const tokenStart = m => {
         let i = m.index;
         while (i > 0 && /[\d:.h]/i.test(text[i - 1]))
@@ -218,7 +221,15 @@ function extractTime(text, atWord) {
         return i;
     };
     const afterDash = m => /[-–]\s*$/.test(text.slice(0, tokenStart(m)));
-    const insideToken = m => afterDash(m) || /\d\./.test(text.slice(tokenStart(m), m.index));
+    const insideToken = m => {
+        const stretch = text.slice(tokenStart(m), m.index);
+        if (!/\d/.test(stretch))
+            return false;
+        const ahead = text.slice(m.index);
+        return afterDash(m) ||
+            (/\d:$/.test(stretch) && /^\d{2}/.test(ahead)) ||
+            (/\d\.$/.test(stretch) && /^\d/.test(ahead));
+    };
 
     // Colon form; invalid candidates are skipped so a later valid one wins.
     for (const m of text.matchAll(new RegExp(`\\b${optAt}(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*(am|pm)?\\b`, 'giu'))) {
