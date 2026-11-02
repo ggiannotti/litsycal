@@ -204,6 +204,13 @@ check('quickadd label-colon ampm2 time', parseQuickAdd('Dentist:4pm')?.time, '16
 check('quickadd label-colon colon-ampm time', parseQuickAdd('Time:10:12am')?.time, '10:12');
 check('quickadd label-colon h time', parseQuickAdd('Meet:12h')?.time, '12:00');
 check('quickadd label-dot ampm time', parseQuickAdd('Call.5pm')?.time, '17:00');
+// A label may itself end in a digit ("B2:", "Level3:"): that digit is
+// part of the label, not of a time token, so the time still counts.
+check('quickadd label-digit ampm time', parseQuickAdd('B2:5pm')?.time, '17:00');
+check('quickadd label-digit ampm2 time', parseQuickAdd('Phase1:5pm')?.time, '17:00');
+check('quickadd label-digit colon time', parseQuickAdd('Level3:9:30')?.time, '09:30');
+check('quickadd label-digit spaced ampm time', parseQuickAdd('Room 101:5pm')?.time, '17:00');
+check('quickadd label-digit dotted time', parseQuickAdd('Gate7:9.30am')?.time, '09:30');
 // ...but a valid start still gives its own time when the end is named.
 check('quickadd range dotted-ampm-noon time', parseQuickAdd('Meet 9.30am-noon')?.time, '09:30');
 check('quickadd range dotted-ampm-noon title', parseQuickAdd('Meet 9.30am-noon')?.title, 'Meet');
