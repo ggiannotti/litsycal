@@ -178,6 +178,23 @@ check('quickadd range invalid-ampm rejected time', parseQuickAdd('Shift 22-2am')
 check('quickadd range invalid-ampm rejected title', parseQuickAdd('Shift 22-2am')?.title, 'Shift 22-2am');
 check('quickadd range dotted-h rejected time', parseQuickAdd('Meet 9.30-16h')?.time, null);
 check('quickadd range dotted-h rejected title', parseQuickAdd('Meet 9.30-16h')?.title, 'Meet 9.30-16h');
+// Nor may a fallback match a fragment inside the rejected range's end
+// token ("12am"/"12h" inside "10:12am"/"10:12h" is not a time either).
+check('quickadd range colon-ampm fragment rejected time', parseQuickAdd('Meet 99:99-10:12am')?.time, null);
+check('quickadd range colon-ampm fragment rejected title', parseQuickAdd('Meet 99:99-10:12am')?.title, 'Meet 99:99-10:12am');
+check('quickadd range ampm-ampm fragment rejected time', parseQuickAdd('Shift 13pm-10:12am')?.time, null);
+check('quickadd range ampm-ampm fragment rejected title', parseQuickAdd('Shift 13pm-10:12am')?.title, 'Shift 13pm-10:12am');
+check('quickadd range dotted-ampm fragment rejected time', parseQuickAdd('Meet 99:99-10.12am')?.time, null);
+check('quickadd range dotted-ampm fragment rejected title', parseQuickAdd('Meet 99:99-10.12am')?.title, 'Meet 99:99-10.12am');
+check('quickadd range seconds-ampm fragment rejected time', parseQuickAdd('Meet 99:99-10:12:05am')?.time, null);
+check('quickadd range seconds-ampm fragment rejected title', parseQuickAdd('Meet 99:99-10:12:05am')?.title, 'Meet 99:99-10:12:05am');
+check('quickadd range colon24-ampm fragment rejected time', parseQuickAdd('Shift 25:00-10:05am')?.time, null);
+check('quickadd range colon24-ampm fragment rejected title', parseQuickAdd('Shift 25:00-10:05am')?.title, 'Shift 25:00-10:05am');
+check('quickadd range colon-h fragment rejected time', parseQuickAdd('Meet 99:99-10:12h')?.time, null);
+check('quickadd range colon-h fragment rejected title', parseQuickAdd('Meet 99:99-10:12h')?.title, 'Meet 99:99-10:12h');
+// The whole end token on its own is still a time.
+check('quickadd 10:12am alone time', parseQuickAdd('Meet 10:12am')?.time, '10:12');
+check('quickadd 10:12am alone title', parseQuickAdd('Meet 10:12am')?.title, 'Meet');
 // ...but a valid start still gives its own time when the end is named.
 check('quickadd range dotted-ampm-noon time', parseQuickAdd('Meet 9.30am-noon')?.time, '09:30');
 check('quickadd range dotted-ampm-noon title', parseQuickAdd('Meet 9.30am-noon')?.title, 'Meet');

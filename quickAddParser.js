@@ -203,11 +203,22 @@ function extractTime(text, atWord) {
     // valid start was already taken above, so a candidate right after
     // a dash is the end of a range whose start was rejected, and must
     // not become the time instead ("Meet 9.30-10:30" has no time).
-    const afterDash = m => /[-–]\s*$/.test(text.slice(0, m.index));
+    // A candidate may also start inside that end token ("12am" in
+    // "10:12am"), so walk back over the token's characters first: a
+    // fragment of a bigger token is never a time of its own, and the
+    // dash check must see the whole token, not just the fragment.
+    const tokenStart = m => {
+        let i = m.index;
+        while (i > 0 && /[\d:.h]/i.test(text[i - 1]))
+            i--;
+        return i;
+    };
+    const afterDash = m => /[-–]\s*$/.test(text.slice(0, tokenStart(m)));
+    const insideToken = m => tokenStart(m) < m.index;
 
     // Colon form; invalid candidates are skipped so a later valid one wins.
     for (const m of text.matchAll(new RegExp(`\\b${optAt}(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*(am|pm)?\\b`, 'giu'))) {
-        if (afterDash(m))
+        if (afterDash(m) || insideToken(m))
             continue;
         const rawHour = parseInt(m[1], 10);
         const minute  = parseInt(m[2], 10);
@@ -223,7 +234,7 @@ function extractTime(text, atWord) {
     // Dotted form needs am/pm or "<at>": a bare decimal is not a time.
     const dottedAt = atWord ? `(${escapeRegExp(atWord)}\\s+)?` : '()';
     for (const m of text.matchAll(new RegExp(`\\b${dottedAt}(\\d{1,2})\\.(\\d{2})\\s*(am|pm)?\\b`, 'giu'))) {
-        if (afterDash(m))
+        if (afterDash(m) || insideToken(m))
             continue;
         if (!m[1] && !m[4])
             continue;
@@ -239,7 +250,7 @@ function extractTime(text, atWord) {
 
     // "15h30" 24-hour shorthand; invalid candidates are skipped as above.
     for (const cand of text.matchAll(new RegExp(`\\b${optAt}([01]?\\d|2[0-3])h(\\d{2})?\\b`, 'giu'))) {
-        if (afterDash(cand))
+        if (afterDash(cand) || insideToken(cand))
             continue;
         const minute = cand[2] ? parseInt(cand[2], 10) : 0;
         if (minute <= 59)
@@ -248,7 +259,7 @@ function extractTime(text, atWord) {
 
     // Bare hour with am/pm; invalid candidates are skipped as above.
     for (const cand of text.matchAll(new RegExp(`\\b${optAt}(\\d{1,2})\\s*(am|pm)\\b`, 'giu'))) {
-        if (afterDash(cand))
+        if (afterDash(cand) || insideToken(cand))
             continue;
         const rawHour = parseInt(cand[1], 10);
         if (rawHour >= 1 && rawHour <= 12)
