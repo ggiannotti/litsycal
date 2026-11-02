@@ -207,6 +207,8 @@ function extractTime(text, atWord) {
     // "10:12am"), so walk back over the token's characters first: a
     // fragment of a bigger token is never a time of its own, and the
     // dash check must see the whole token, not just the fragment.
+    // The walked-back stretch only counts as a token if it contains
+    // a digit: bare label punctuation ("Lunch:5pm") is not a token.
     const tokenStart = m => {
         let i = m.index;
         while (i > 0 && /[\d:.h]/i.test(text[i - 1]))
@@ -214,7 +216,7 @@ function extractTime(text, atWord) {
         return i;
     };
     const afterDash = m => /[-–]\s*$/.test(text.slice(0, tokenStart(m)));
-    const insideToken = m => tokenStart(m) < m.index;
+    const insideToken = m => /\d/.test(text.slice(tokenStart(m), m.index));
 
     // Colon form; invalid candidates are skipped so a later valid one wins.
     for (const m of text.matchAll(new RegExp(`\\b${optAt}(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*(am|pm)?\\b`, 'giu'))) {

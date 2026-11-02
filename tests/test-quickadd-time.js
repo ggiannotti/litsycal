@@ -195,6 +195,15 @@ check('quickadd range colon-h fragment rejected title', parseQuickAdd('Meet 99:9
 // The whole end token on its own is still a time.
 check('quickadd 10:12am alone time', parseQuickAdd('Meet 10:12am')?.time, '10:12');
 check('quickadd 10:12am alone title', parseQuickAdd('Meet 10:12am')?.title, 'Meet');
+// Label punctuation before a time is not a time token: the time after
+// "Standup:"/"Lunch:" still counts (only its time is checked here; the
+// label punctuation stays in the title, as before).
+check('quickadd label-colon colon time', parseQuickAdd('Standup:9:30')?.time, '09:30');
+check('quickadd label-colon ampm time', parseQuickAdd('Lunch:5pm')?.time, '17:00');
+check('quickadd label-colon ampm2 time', parseQuickAdd('Dentist:4pm')?.time, '16:00');
+check('quickadd label-colon colon-ampm time', parseQuickAdd('Time:10:12am')?.time, '10:12');
+check('quickadd label-colon h time', parseQuickAdd('Meet:12h')?.time, '12:00');
+check('quickadd label-dot ampm time', parseQuickAdd('Call.5pm')?.time, '17:00');
 // ...but a valid start still gives its own time when the end is named.
 check('quickadd range dotted-ampm-noon time', parseQuickAdd('Meet 9.30am-noon')?.time, '09:30');
 check('quickadd range dotted-ampm-noon title', parseQuickAdd('Meet 9.30am-noon')?.title, 'Meet');
