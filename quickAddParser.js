@@ -184,7 +184,15 @@ function extractTime(text, atWord) {
         if (end.ampm) {
             if (start.hour < 1 || start.hour > 12)
                 return null;
-            return `${pad(to24h(start.hour, end.ampm))}:${pad(start.minute)}`;
+            // Inheriting the end's am/pm must not put the start after
+            // the end: a range crossing noon/midnight takes the other
+            // meridiem instead ("11-1pm" -> 11:00, "11-1am" -> 23:00).
+            const startMins = to24h(start.hour, end.ampm) * 60 + start.minute;
+            const endMins   = to24h(end.hour, end.ampm) * 60 + end.minute;
+            let ampm = end.ampm;
+            if (startMins > endMins)
+                ampm = end.ampm === 'pm' ? 'am' : 'pm';
+            return `${pad(to24h(start.hour, ampm))}:${pad(start.minute)}`;
         }
         return `${pad(start.hour)}:${pad(start.minute)}`;
     };

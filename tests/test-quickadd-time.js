@@ -78,6 +78,16 @@ check('quickadd range Standup time', parseQuickAdd('Standup 9:30am-10am')?.time,
 check('quickadd range Standup title', parseQuickAdd('Standup 9:30am-10am')?.title, 'Standup');
 check('quickadd range bare-inherits time', parseQuickAdd('Call 9-10:30am')?.time, '09:00');
 check('quickadd range bare-inherits title', parseQuickAdd('Call 9-10:30am')?.title, 'Call');
+// A bare start that would land after the end with the end's am/pm takes
+// the other meridiem: the range crosses noon/midnight.
+check('quickadd range crosses-noon time', parseQuickAdd('Lunch 11:30-1pm')?.time, '11:30');
+check('quickadd range crosses-noon title', parseQuickAdd('Lunch 11:30-1pm')?.title, 'Lunch');
+check('quickadd range crosses-noon bare time', parseQuickAdd('Meeting 11-1pm')?.time, '11:00');
+check('quickadd range crosses-noon bare title', parseQuickAdd('Meeting 11-1pm')?.title, 'Meeting');
+check('quickadd range to-noon time', parseQuickAdd('Workshop 9-12pm')?.time, '09:00');
+check('quickadd range to-noon title', parseQuickAdd('Workshop 9-12pm')?.title, 'Workshop');
+check('quickadd range crosses-midnight time', parseQuickAdd('Shift 11-1am')?.time, '23:00');
+check('quickadd range crosses-midnight title', parseQuickAdd('Shift 11-1am')?.title, 'Shift');
 check('quickadd 9.30pm time', parseQuickAdd('Call 9.30pm')?.time, '21:30');
 check('quickadd 9.30pm title', parseQuickAdd('Call 9.30pm')?.title, 'Call');
 check('quickadd range dotted-bare time', parseQuickAdd('meet 3-4.30pm')?.time, '15:00');
